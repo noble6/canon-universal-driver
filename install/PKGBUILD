@@ -1,0 +1,34 @@
+pkgname=canon-universal-driver
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Universal open-source Canon printer driver for Linux targeting unsupported models (PIXMA G, E, iP, MG, TR/TS, imageCLASS)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/noble6/canon-universal-driver"
+license=('GPL3')
+depends=('cups' 'libusb' 'ghostscript')
+makedepends=('meson' 'ninja' 'python-jinja2')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  meson setup build --prefix=/usr
+  ninja -C build
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  DESTDIR="$pkgdir" ninja -C build install
+
+  install -d "$pkgdir/usr/share/cups/model/Canon"
+  cp -r build/ppd_out/* "$pkgdir/usr/share/cups/model/Canon/"
+}
+
+post_install() {
+  echo "=> Reloading udev rules..."
+  udevadm control --reload-rules
+  udevadm trigger
+  echo "=> Restarting CUPS service..."
+  systemctl restart cups
+  echo "=> Add your printer via the CUPS web interface (http://localhost:631)"
+}

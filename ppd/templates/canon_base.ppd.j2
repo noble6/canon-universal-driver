@@ -1,0 +1,50 @@
+*PPD-Adobe: "4.3"
+*% PPD file for {{ model }} with CUPS.
+*FormatVersion: "4.3"
+*FileVersion: "1.0"
+*LanguageVersion: English
+*LanguageEncoding: ISOLatin1
+*PCFileName: "{{ model.replace(' ', '') }}.ppd"
+*DeviceID: "MFG:Canon;MDL:{{ model }};CMD:CANON;"
+*Manufacturer: "Canon"
+*Product: "({{ model }})"
+*ModelName: "Canon {{ model }} Universal"
+*ShortNickName: "Canon {{ model }}"
+*NickName: "Canon {{ model }} - Universal Driver"
+*PSVersion: "(3010.000) 0"
+*LanguageLevel: "3"
+*ColorDevice: {% if is_color %}True{% else %}False{% endif %}
+*DefaultColorSpace: {% if is_color %}RGB{% else %}Gray{% endif %}
+*VariablePaperSize: True
+*HWMargins: 9 9 9 9
+
+*1284DeviceID: "MFG:Canon;MDL:{{ model }};"
+*cupsVersion: 2.0
+*cupsModelNumber: 0
+*cupsManualCopies: True
+*cupsFilter: "application/vnd.cups-raster 100 canonfilter"
+*cupsSNMPSupplies: False
+*cupsColorOrder: 0
+*cupsColorSpace: {% if is_color %}1{% else %}0{% endif %}
+*cupsBitsPerColor: 8
+*cupsCompression: 0
+
+*% Basic Page Sizes
+*OpenUI *PageSize/Media Size: PickOne
+*OrderDependency: 10 AnySetup *PageSize
+*DefaultPageSize: A4
+*PageSize A4/A4: "<</PageSize[595 842]/ImagingBBox null>>setpagedevice"
+*PageSize Letter/US Letter: "<</PageSize[612 792]/ImagingBBox null>>setpagedevice"
+*CloseUI: *PageSize
+
+*% Resolution
+*OpenUI *Resolution/Resolution: PickOne
+*OrderDependency: 20 AnySetup *Resolution
+*DefaultResolution: 600dpi
+*Resolution 300dpi/300 dpi: "<</HWResolution[300 300]>>setpagedevice"
+*Resolution 600dpi/600 dpi: "<</HWResolution[600 600]>>setpagedevice"
+*Resolution {{ max_dpi }}dpi/{{ max_dpi }} dpi: "<</HWResolution[{{ max_dpi }} {{ max_dpi }}]>>setpagedevice"
+*CloseUI: *Resolution
+
+*DefaultImageableArea: A4
+*DefaultPaperDimension: A4
