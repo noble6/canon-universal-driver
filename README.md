@@ -12,12 +12,12 @@ Canon ships no Linux drivers for most of its modern and older printer lines (PIX
 
 | Component | Status | Notes |
 |---|---|---|
-| CUPS raster filter (`canonfilter`) | ✅ Working | Converts CUPS raster → device commands |
-| G-series protocol (PIXMA G1010/G2010/G3010/G4010) | ✅ Implemented | ESC-sequence job setup, PackBits-compressed raster lines |
-| Wi-Fi printing | ✅ Working | Via CUPS driverless IPP (AirPrint-class); custom BJNP network stack is a roadmap item |
-| USB data path | 🚧 In progress | libusb backend exists; filter output routing over bulk transfers is next |
-| Other protocol families (E/iP/MG/TR-TS/imageCLASS) | 🧪 Scaffolded | Ops interface defined, implementations pending |
-| PPD generation | ✅ Working | 16 model PPDs auto-generated from `models.json` via Jinja2 |
+| CUPS raster filter (`canonfilter`) |  Working | Converts CUPS raster → device commands |
+| G-series protocol (PIXMA G1010/G2010/G3010/G4010) |  Implemented | ESC-sequence job setup, PackBits-compressed raster lines |
+| Wi-Fi printing |   Working | Via CUPS driverless IPP (AirPrint-class); custom BJNP network stack is a roadmap item |
+| USB data path |  In progress | libusb backend exists; filter output routing over bulk transfers is next |
+| Other protocol families (E/iP/MG/TR-TS/imageCLASS) |   Scaffolded | Ops interface defined, implementations pending |
+| PPD generation |  Working | 16 model PPDs auto-generated from `models.json` via Jinja2 |
 
 ## Architecture
 
