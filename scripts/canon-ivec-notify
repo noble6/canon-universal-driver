@@ -117,13 +117,19 @@ class Popup:
         self.proc = None
         self.key = None
         self.nid = None
+        self.dismissed = set()
+        self.flip_fallback = False
 
     def show(self, key, title, body, paused, flip_job=None):
         if key == self.key and self.proc and self.proc.poll() is None:
             return
+        if key == self.key and key in self.dismissed:
+            return
         self.close()
         self.key = key
         self.flip_job = flip_job
+        if flip_job and not self.flip_fallback and self.flip_window(flip_job):
+            return
         # The printer continues by itself once the user fixes it and presses
         # its button; only a queue CUPS paused needs resuming from here, and
         # manual 2-sided printing waits for Continue.
@@ -140,6 +146,31 @@ class Popup:
         except OSError:
             return
         threading.Thread(target=self._wait, args=(self.proc,), daemon=True).start()
+
+    def flip_window(self, job):
+        """Windows-style dialog with a drawing of how to reload the stack."""
+        tool = shutil.which('canon-ivec-flip') or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                'canon-ivec-flip')
+        if not os.access(tool, os.X_OK):
+            return False
+        try:
+            self.proc = subprocess.Popen([tool, '--queue', self.queue, '--job', job])
+        except OSError:
+            return False
+        threading.Thread(target=self._wait_flip, args=(self.proc, job, self.key), daemon=True).start()
+        return True
+
+    def _wait_flip(self, proc, job, key):
+        rc = proc.wait()
+        if rc == 0:
+            flip_continue(job)
+        elif rc == 1:
+            subprocess.run(['cancel', f'{self.queue}-{job}'])
+        elif rc == 3:          # no GUI toolkit: fall back to a notification
+            self.key = None
+            self.flip_fallback = True
+        else:                  # window closed: do not pop it up again for this job
+            self.dismissed.add(key)
 
     def _wait(self, proc):
         # -p prints the notification id first; the chosen action follows

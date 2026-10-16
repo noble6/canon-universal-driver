@@ -375,9 +375,13 @@ static int wait_for_flip(const char *job_id, int tumble) {
     unlink(flag);
     fflush(stdout);
     fprintf(stderr, "STATE: +media-needed-warning\n");
-    fprintf(stderr, "WARNING: Job %s: front sides sent. When they have finished printing, take the stack, "
-                    "turn it over %s and put it back in the paper tray. Then press Continue.\n",
-            job_id, tumble ? "top to bottom (like a notepad)" : "like turning a book page");
+    /* Pages come out top edge first, so only two things matter for the
+     * reload: blank side facing the user, TOP edge in first.  Short-edge
+     * jobs get their backs rotated here, so the instruction is the same. */
+    (void)tumble;
+    fprintf(stderr, "WARNING: Job %s: front sides sent. When they have finished printing, put the stack back "
+                    "in the rear tray with the blank side facing you and the TOP edge going in first. "
+                    "Then press Continue.\n", job_id);
     int rc = -1;
     for (int waited = 0; waited < 3600 && !canceled; waited++) {
         if (access(flag, F_OK) == 0) { rc = 0; break; }

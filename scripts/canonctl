@@ -246,6 +246,9 @@ cmd_doctor() {
     warn "system-config-printer installed (KDE printer settings)" "command -v system-config-printer" \
         "install system-config-printer"
     warn "printer notifications running" "pgrep -f 'python3 .*bin/canon-ivec-notify'" "run canon-ivec-notify & (starts at login)"
+    warn "picture guide for manual 2-sided printing (PySide6 or GTK 4)" \
+        "python3 -c 'import PySide6.QtSvgWidgets' || python3 -c 'import gi; gi.require_version(\"Gtk\", \"4.0\")'" \
+        "install pyside6 (or python-gobject and gtk4)"
     warn "no ipp-usb grabbing the USB port" "! systemctl is-active ipp-usb" \
         "ipp-usb can hold the printer's USB interface; stop it if USB printing stalls"
     info "Queues using Canon devices"

@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Manual 2-sided printing: show how to put the printed stack back.
+
+    canon-ivec-flip --queue Canon_G3010 --job 42 [--short-edge]
+    canon-ivec-flip --preview            (just show the window)
+    canon-ivec-flip --svg out.svg        (write the drawing)
+
+Exit status: 0 Continue, 1 Cancel printing, 2 window closed,
+3 no GUI toolkit available (caller falls back to a notification).
+
+The pages come out top edge first, so the edge that goes into the rear
+tray first is printed as the top.  Whatever way the stack is turned, the
+only things that matter are: blank side facing the user, TOP edge in
+first.  The drawing tracks the TOP edge with a red stripe.
+"""
+import argparse
+import os
+import sys
+import tempfile
+
+RED = '#d93025'
+INK = '#202124'
+MUTED = '#5f6368'
+PAPER = '#ffffff'
+BLANK = '#eef1f4'
+FRAME = '#9aa0a6'
+
+
+def sheet(x, y, w, h, label=None, red='top', fill=PAPER):
+    out = [f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="3" fill="{fill}" stroke="{FRAME}" stroke-width="2"/>']
+    ry = y if red == 'top' else y + h - 9
+    out.append(f'<rect x="{x}" y="{ry}" width="{w}" height="9" fill="{RED}"/>')
+    if label:
+        out.append(f'<text x="{x + w / 2}" y="{y + h / 2 + 22}" text-anchor="middle" font-size="62" '
+                   f'font-weight="700" fill="{INK}">{label}</text>')
+    return ''.join(out)
+
+
+def svg(short_edge=False):
+    tip = ('Turn a finished sheet top over bottom (like a notepad) to read it.' if short_edge else
+           'Turn a finished sheet like a book page to read it: both sides are upright.')
+    parts = [
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 380" width="960" height="380" '
+        'font-family="Noto Sans, DejaVu Sans, sans-serif">',
+        f'<rect width="960" height="380" rx="14" fill="{PAPER}"/>',
+        '<defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
+        f'<path d="M0,0 L10,5 L0,10 z" fill="{INK}"/></marker></defs>',
+        # step 1
+        f'<text x="160" y="38" text-anchor="middle" font-size="20" font-weight="700" fill="{INK}">1  Take the printed sheets</text>',
+        sheet(100, 70, 120, 165, '1'),
+        f'<text x="232" y="80" font-size="15" font-weight="700" fill="{RED}">TOP</text>',
+        f'<text x="160" y="270" text-anchor="middle" font-size="15" fill="{MUTED}">Wait until all front sides</text>',
+        f'<text x="160" y="290" text-anchor="middle" font-size="15" fill="{MUTED}">have come out. Keep the order.</text>',
+        # step 2
+        f'<text x="480" y="38" text-anchor="middle" font-size="20" font-weight="700" fill="{INK}">2  Turn the stack over</text>',
+        sheet(385, 95, 95, 130, '1'),
+        sheet(520, 95, 95, 130, None, 'top', BLANK),
+        f'<path d="M432,88 C440,48 560,48 568,88" fill="none" stroke="{INK}" stroke-width="3" marker-end="url(#a)"/>',
+        f'<text x="480" y="270" text-anchor="middle" font-size="15" fill="{MUTED}">The blank side faces you.</text>',
+        f'<text x="480" y="290" text-anchor="middle" font-size="15" fill="{MUTED}">The red TOP edge stays marked.</text>',
+        # step 3: printer with rear tray, sheet going in TOP edge first
+        f'<text x="800" y="38" text-anchor="middle" font-size="20" font-weight="700" fill="{INK}">3  Red TOP edge down, in first</text>',
+        f'<path d="M730,170 L752,120 L848,120 L870,170 z" fill="#dadce0" stroke="{FRAME}" stroke-width="2"/>',
+        f'<rect x="700" y="168" width="200" height="82" rx="10" fill="#3c4043"/>',
+        f'<rect x="725" y="232" width="150" height="8" rx="3" fill="#202124"/>',
+        f'<circle cx="880" cy="190" r="5" fill="#81c995"/>',
+        sheet(758, 52, 84, 112, None, 'bottom', BLANK),
+        f'<text x="852" y="160" font-size="15" font-weight="700" fill="{RED}">TOP</text>',
+        f'<path d="M735,58 L735,150" stroke="{INK}" stroke-width="4" marker-end="url(#a)"/>',
+        f'<text x="800" y="275" text-anchor="middle" font-size="15" fill="{MUTED}">Blank side facing you, red edge</text>',
+        f'<text x="800" y="295" text-anchor="middle" font-size="15" fill="{MUTED}">into the rear tray. Then press Continue.</text>',
+        f'<line x1="40" y1="322" x2="920" y2="322" stroke="#e8eaed" stroke-width="2"/>',
+        f'<text x="480" y="352" text-anchor="middle" font-size="15" fill="{MUTED}">{tip}</text>',
+        '</svg>',
+    ]
+    return ''.join(parts)
+
+
+TEXT = ('The front sides of job {job} on {queue} are printing.\n'
+        'When they are done, put the stack back as shown, then press Continue to print the back sides.')
+
+
+def run_qt(path, title, text):
+    from PySide6.QtCore import Qt
+    from PySide6.QtSvgWidgets import QSvgWidget
+    from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QLabel, QPushButton,
+                                   QVBoxLayout)
+    app = QApplication.instance() or QApplication(sys.argv[:1])
+    dlg = QDialog()
+    dlg.setWindowTitle(title)
+    dlg.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+    lay = QVBoxLayout(dlg)
+    pic = QSvgWidget(path)
+    pic.setFixedSize(768, 304)
+    lay.addWidget(pic, alignment=Qt.AlignHCenter)
+    lab = QLabel(text)
+    lab.setWordWrap(True)
+    lay.addWidget(lab)
+    box = QDialogButtonBox()
+    cont = QPushButton('Continue')
+    cont.setDefault(True)
+    box.addButton(cont, QDialogButtonBox.AcceptRole)
+    box.addButton(QPushButton('Cancel printing'), QDialogButtonBox.RejectRole)
+    box.accepted.connect(lambda: dlg.done(0))
+    box.rejected.connect(lambda: dlg.done(1))
+    lay.addWidget(box)
+    dlg.finished.connect(lambda r: app.exit(r))
+    dlg.show()
+    dlg.raise_()
+    rc = app.exec()
+    return rc if rc in (0, 1) else 2
+
+
+def run_gtk(path, title, text):
+    import gi
+    gi.require_version('Gtk', '4.0')
+    from gi.repository import GLib, Gtk
+    result = {'rc': 2}
+    loop = GLib.MainLoop()
+    win = Gtk.Window(title=title)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=12, margin_bottom=12,
+                  margin_start=12, margin_end=12)
+    pic = Gtk.Picture.new_for_filename(path)
+    pic.set_size_request(768, 304)
+    box.append(pic)
+    lab = Gtk.Label(label=text, wrap=True, xalign=0)
+    box.append(lab)
+    btns = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+    for label, rc in (('Cancel printing', 1), ('Continue', 0)):
+        b = Gtk.Button(label=label)
+        b.connect('clicked', lambda _b, rc=rc: (result.update(rc=rc), win.close()))
+        btns.append(b)
+    box.append(btns)
+    win.set_child(box)
+    win.connect('close-request', lambda *_: (loop.quit(), False)[1])
+    win.present()
+    loop.run()
+    return result['rc']
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--queue', default='the printer')
+    ap.add_argument('--job', default='')
+    ap.add_argument('--short-edge', action='store_true')
+    ap.add_argument('--preview', action='store_true')
+    ap.add_argument('--svg')
+    a = ap.parse_args()
+
+    drawing = svg(a.short_edge)
+    if a.svg:
+        open(a.svg, 'w').write(drawing)
+        return 0
+    fd, path = tempfile.mkstemp(suffix='.svg', prefix='canon-ivec-flip-')
+    with os.fdopen(fd, 'w') as f:
+        f.write(drawing)
+    title = 'Canon printer: turn the pages over'
+    text = TEXT.format(job=a.job or '', queue=a.queue).replace('job  on', 'the job on')
+    try:
+        for runner in (run_qt, run_gtk):
+            try:
+                return runner(path, title, text)
+            except ImportError:
+                continue
+            except Exception as e:  # display problems etc.
+                print(f'canon-ivec-flip: {runner.__name__}: {e}', file=sys.stderr)
+        return 3
+    finally:
+        os.unlink(path)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

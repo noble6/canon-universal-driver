@@ -60,7 +60,7 @@ Print from any application. Useful options:
 | Color mode | every print dialog | Color, Grayscale |
 | Print quality | every print dialog ("Quality") | Draft, Normal, High (on models that support it) |
 | Media type | LibreOffice: Properties. Chrome: "Print using system dialog" | Plain paper, glossy photo papers, matte, envelopes, ... |
-| 2-sided | every print dialog | Long edge, Short edge. Models without a duplex unit (G3010 and other ink-tank models) get guided manual 2-sided printing: the front sides print, a notification asks you to turn the stack over and put it back, and **Continue** prints the backs (or run `canonctl continue`). |
+| 2-sided | every print dialog | Long edge, Short edge. Models without a duplex unit (G3010 and other ink-tank models) get guided manual 2-sided printing: the front sides print, a window shows a picture of how to put the stack back (blank side facing you, TOP edge in first), and **Continue** prints the backs (or run `canonctl continue`). |
 
 From the shell: `lp -o PageSize=4x6.bl -o MediaType=glossygold photo.jpg`, or list options with `lpoptions -l`.
 

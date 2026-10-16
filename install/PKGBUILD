@@ -8,6 +8,7 @@ url="https://github.com/noble6/canon-universal-driver"
 license=('GPL-3.0-or-later')
 depends=('cups' 'cups-filters' 'ghostscript' 'python' 'libusb')
 optdepends=('libnotify: paper-out and error notifications'
+            'pyside6: picture guide for manual 2-sided printing (or python-gobject + gtk4)'
             'system-config-printer: extra features in KDE printer settings'
             'sane: USB scanning via the pixma backend'
             'sane-airscan: network scanning (eSCL)'
