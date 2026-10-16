@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Canon printer notifications
+Comment=Shows paper-out, jam and paused-queue alerts for Canon printers
+Exec=canon-ivec-notify
+Icon=printer
+Terminal=false
+NoDisplay=true
+X-KDE-autostart-phase=2
+X-GNOME-Autostart-enabled=true

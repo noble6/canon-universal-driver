@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcups2-dev cups cups-filters ghostscript python3
+      - name: Build
+        run: make
+      - name: Offline tests
+        run: make check
+
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Dependencies
+        run: pacman -Syu --noconfirm --needed base-devel cups cups-filters ghostscript python git
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make
+      - name: Offline tests
+        run: make check
+      - name: Package install into a staging root
+        run: make DESTDIR=/tmp/stage install && find /tmp/stage -type f | head -20

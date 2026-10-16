@@ -1,89 +1,125 @@
-# Canon Universal Driver for Linux
+# Canon PIXMA / MAXIFY driver for Linux (IVEC)
 
-Open-source CUPS driver bringing native Linux print support to Canon inkjet printers that the vendor has abandoned — PIXMA G, E, iP, MG, TR/TS, and imageCLASS series — built on reverse engineering of Canon's printer command protocols.
+An open-source CUPS driver for Canon inkjet printers on Linux, covering the PIXMA G (MegaTank) series G1010/G2010/G3010/G4010, G3020, G5080, G6080 and GX, plus E, TS, TR, MG, MX, MB, iB, XK and GM. It provides printing, head cleaning, nozzle checks, alignment and paper-out alerts, with no Canon binaries.
 
-> ⚠️ **Project status: early development (`v0.1.0`).** The core pipeline is functional and printing works end-to-end over Wi-Fi. USB data-path integration is in progress. See [Project State](#project-state).
+[![CI](https://github.com/noble6/canon-universal-driver/actions/workflows/ci.yml/badge.svg)](https://github.com/noble6/canon-universal-driver/actions/workflows/ci.yml)
+![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
+![Models: 164](https://img.shields.io/badge/models-164-informational)
 
-## Why
+If you kept a Windows partition only because your Canon printer or its maintenance tools did not work on Linux, this project is for you.
 
-Canon ships no Linux drivers for most of its modern and older printer lines (PIXMA G/E/iP/MG/TR/TS, several imageCLASS models). This project fills that gap with standard CUPS filters and direct hardware access via libusb — no proprietary code, purely interoperability-driven reverse engineering.
+## Highlights
 
-## Project State
+- **164 printer models** with full profiles: paper sizes, margins, media types, borderless, duplex, and which maintenance operations each one supports. See [docs/SUPPORTED_MODELS.md](docs/SUPPORTED_MODELS.md). Other Canon printers that speak the same protocol fall back to a generic profile.
+- **Exactly what Canon's driver sends.** For every model, the output was compared byte for byte with Canon's official Linux driver: 1194 of 1194 jobs and maintenance commands match ([research/RESULTS.md](research/RESULTS.md)).
+- **Fully open.** No proprietary libraries, no 32-bit dependencies. Plain C on top of libcups, so it should build anywhere CUPS runs, including ARM boards like the Raspberry Pi.
+- **The maintenance tools you were booting Windows for:** cleaning, deep cleaning, ink flush (system cleaning), nozzle check, print head alignment, roller and bottom plate cleaning.
+- **Paper-out, jam and cover-open alerts** as desktop notifications with Resume / Cancel buttons, like the Windows status monitor. This is new; reports from real printers are very welcome (see below).
+- **Works everywhere printing works:** LibreOffice, Firefox, Chrome, GTK and Qt apps, and the `lp` command line all see the printer and its options.
 
-| Component | Status | Notes |
-|---|---|---|
-| CUPS raster filter (`canonfilter`) | ✅ Working | Converts CUPS raster → device commands |
-| G-series protocol (PIXMA G1010/G2010/G3010/G4010) | ✅ Implemented | ESC-sequence job setup, PackBits-compressed raster lines |
-| Wi-Fi printing | ✅ Working | Via CUPS driverless IPP (AirPrint-class); custom BJNP network stack is a roadmap item |
-| USB data path | 🚧 In progress | libusb backend exists; filter output routing over bulk transfers is next |
-| Other protocol families (E/iP/MG/TR-TS/imageCLASS) | 🧪 Scaffolded | Ops interface defined, implementations pending |
-| PPD generation | ✅ Working | 16 model PPDs auto-generated from `models.json` via Jinja2 |
-
-## Architecture
-
-```
-Application → CUPS → Ghostscript/poppler (rasterize) → canonfilter (this driver)
-    → Canon ESC/P-raster command stream → printer (IPP/network today, libusb/USB next)
-```
-
-- **`src/filter/`** — CUPS filter: reads `cupsRaster` streams, dispatches per-page through the active protocol implementation.
-- **`src/protocol/`** — pluggable protocol layer. Each printer family implements a `canon_protocol_ops_t` vtable (job init, resolution/media setup, raster transmission, status, teardown). Includes a hand-written PackBits RLE codec for Canon's compressed raster format.
-- **`src/backend/`** — transports. libusb-1.0 backend (device open by VID/PID, interface claim, bulk endpoints).
-- **`models/models.json`** — single source of truth: 16 models across 6 families (USB IDs, protocol family, features, max DPI).
-- **`ppd/`** — Jinja2 template + generator producing one PPD per model at build time.
-
-## Supported Models
-
-See [`models/models.json`](models/models.json) for the authoritative list of USB product IDs:
-
-PIXMA **G1010 · G2010 · G3010 · G4010** · **E410 · E460 · E3100** · **iP2870 · iP7270** · **MG2570 · MG3070 · MG3110** · **TR4570 · TS3370** · imageCLASS **MF3010 · MF232w**
-
-Your model isn't listed? Protocol families are shared across series — see [`docs/ADDING_NEW_MODEL.md`](docs/ADDING_NEW_MODEL.md) to add yours.
-
-## Building
-
-Requires: `cups`, `libusb-1.0`, `python-jinja2`, `meson`, `ninja`
+## Quick start (Arch Linux, Manjaro, EndeavourOS, CachyOS)
 
 ```bash
-meson setup build
-ninja -C build          # builds canonfilter + generates all PPDs
-sudo ninja -C build install
+git clone https://github.com/noble6/canon-universal-driver.git
+cd canon-universal-driver
+sudo pacman -S --needed base-devel cups ghostscript python
+make && make check
+sudo scripts/install-local.sh        # installs, creates the queue, starts notifications
+lp /usr/share/cups/data/testprint
 ```
 
-Or with plain make:
+Or build a package: `cd install && makepkg -si`, then run `canonctl setup`.
+
+### Debian, Ubuntu, Linux Mint
 
 ```bash
-make
+sudo apt install build-essential libcups2-dev cups cups-filters ghostscript python3 libnotify-bin
+make && make check
 sudo make install
+canonctl setup
 ```
 
-## Setup
-
-Connect the printer, then either use the CUPS web interface (`http://localhost:631`) or:
+### Fedora
 
 ```bash
-sudo ./scripts/add_printer.sh
+sudo dnf install gcc make cups-devel cups cups-filters ghostscript python3 libnotify
+make && make check
+sudo make install
+canonctl setup
 ```
 
-Wi-Fi users: add the printer as a driverless IPP queue from the CUPS web UI (discovered under *Administration → Find New Printers*), then select the generated PPD for your model.
+## Using it
 
-## Roadmap
+`canonctl setup` picks the right profile from the printer's own model ID. Over USB it uses this driver. For printers on Wi-Fi it creates a driverless IPP queue, which the printer supports natively.
 
-- [ ] Route filter output through the libusb backend (native USB printing)
-- [ ] Implement remaining protocol families (E, iP, MG, TR/TS, imageCLASS)
-- [ ] Status/ink-level reporting over USB interrupt endpoint
-- [ ] Canon BJNP network discovery/printing protocol
-- [ ] Debian/RPM packaging alongside the AUR PKGBUILD
+Print from any application. Useful options:
+
+| Option | Where you find it | Values |
+|---|---|---|
+| Paper size | every print dialog | A4, Letter, Legal, A5, B5, 4x6, 5x7, 8x10, envelopes, ... and "(borderless)" variants |
+| Color mode | every print dialog | Color, Grayscale |
+| Media type | LibreOffice: Properties. Chrome: "Print using system dialog" | Plain paper, glossy photo papers, matte, envelopes, ... |
+| 2-sided | every print dialog, on duplex models | Long edge, Short edge |
+
+From the shell: `lp -o PageSize=4x6.bl -o MediaType=glossygold photo.jpg`, or list options with `lpoptions -l`.
+
+### Maintenance
+
+```bash
+canonctl nozzle          # nozzle check pattern
+canonctl clean           # print head cleaning, all inks  (clean group1 = black, group2 = colour)
+canonctl deep-clean      # deep cleaning
+canonctl flush           # ink flush / system cleaning; uses a lot of ink, asks first
+canonctl align           # print head alignment
+canonctl roller          # paper feed roller cleaning
+canonctl platen          # bottom plate cleaning
+canonctl status
+```
+
+The CUPS web interface (http://localhost:631) and desktop printer settings also offer *Clean Print Heads* and *Print Self-Test Page*.
+
+### Paper out and other alerts
+
+When the printer stops for paper, a jam or an open cover, a notification shows what happened and Canon's support code. The fix is the same as on Windows: load paper, then press the printer's Start/OK (Black or Color) button, and printing continues where it stopped. If CUPS paused the queue after an error, the **Resume** button re-enables it.
+
+Notifications start automatically at login (`canon-ivec-notify`).
+
+The alert path decodes Canon's own status messages (`MediaEmpty`, `MediaJam`, `DoorOpen` and support codes). It has been tested against simulated printer replies. If an alert does not appear on your model, run `sudo canonctl report` after reproducing it and attach the output to an issue.
+
+### Scanning
+
+Scanning is handled by SANE, which already supports most of these printers:
+
+```bash
+sudo pacman -S sane sane-airscan simple-scan     # USB: pixma backend, Wi-Fi: eSCL
+canonctl scan
+```
+
+## How it works
+
+Canon inkjets since about 2013 speak **IVEC**: a stream of small XML commands (`StartJob`, `SetConfiguration`, `SendData`, `EndJob`, ...) with each page sent as a standard PWG Raster image. This driver renders pages with Ghostscript, fits them to the model's printable area, wraps them in IVEC commands, and talks to the printer through the normal CUPS USB backend.
+
+The protocol was worked out by running Canon's official Linux driver in a sandbox and diffing its output across 164 models and every option combination. The full write-up is in [docs/PROTOCOL_IVEC.md](docs/PROTOCOL_IVEC.md), and [research/](research/) has the harness to reproduce it.
+
+```
+application -> CUPS -> Ghostscript -> rastertocanonivec -> usb backend -> printer
+                                        (IVEC + PWG)          ^ status back channel
+canonctl / desktop -> cmdtocanonivec (maintenance)            canon-ivec-notify (alerts)
+```
+
+## Troubleshooting
+
+See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). Start with:
+
+```bash
+canonctl doctor
+canonctl detect
+```
 
 ## Contributing
 
-The easiest high-value contribution is hardware testing: capture your printer's behavior and open an issue/PR. Adding a new model is often just a JSON entry — see [`docs/ADDING_NEW_MODEL.md`](docs/ADDING_NEW_MODEL.md).
+Hardware reports are the most valuable contribution: does your model print, do the margins look right, does the paper-out alert appear? See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports should include the output of `canonctl detect`, `canonctl doctor` and, for status problems, `sudo canonctl report`.
 
 ## License
 
-GPL-3.0-or-later — see [LICENSE](LICENSE).
-
-## Legal
-
-This driver is produced through independent clean-room reverse engineering for interoperability purposes. It contains no Canon proprietary code. **Not affiliated with or endorsed by Canon Inc.**
-
+GPL-3.0-or-later. This project contains no Canon code. Canon, PIXMA and MAXIFY are trademarks of Canon Inc. This project is not affiliated with or endorsed by Canon.

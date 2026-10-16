@@ -1,23 +1,63 @@
-CC=gcc
-CFLAGS=-g -Wall -Isrc/protocol -Isrc/backend
-LIBS=-lcups -lusb-1.0
+# Canon IVEC open driver
+CC       ?= gcc
+CFLAGS   ?= -O2 -g
+CFLAGS   += -Wall -Wextra -Wno-format-truncation $(shell pkg-config --cflags cups)
+LDLIBS   += $(shell pkg-config --libs cups)
+PYTHON   ?= python3
 
-all: canonfilter generate_ppds
+PREFIX      ?= /usr
+SERVERBIN   ?= $(shell pkg-config --variable=cups_serverbin cups 2>/dev/null || echo $(PREFIX)/lib/cups)
+PPDDIR      ?= $(PREFIX)/share/ppd/canon-ivec
+BINDIR      ?= $(PREFIX)/bin
+DOCDIR      ?= $(PREFIX)/share/doc/canon-ivec-driver
+SYSCONFDIR  ?= /etc
 
-canonfilter: src/filter/canon_filter.c src/protocol/g_series.c
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
+FILTERS = out/rastertocanonivec out/cmdtocanonivec
+IVEC    = src/ivec/ivec.c src/ivec/ivec.h
+STATUS  = src/ivec/status.c src/ivec/status.h
 
-generate_ppds:
-	python3 ppd/generate_ppd.py models/models.json ppd/templates ppd/out
+all: $(FILTERS) out/ppd/.stamp
+
+out/rastertocanonivec: src/ivec/rastertocanonivec.c $(IVEC) $(STATUS)
+	@mkdir -p out
+	$(CC) $(CFLAGS) -pthread -o $@ src/ivec/rastertocanonivec.c src/ivec/ivec.c src/ivec/status.c $(LDFLAGS) $(LDLIBS)
+
+out/cmdtocanonivec: src/ivec/cmdtocanonivec.c $(IVEC)
+	@mkdir -p out
+	$(CC) $(CFLAGS) -o $@ src/ivec/cmdtocanonivec.c src/ivec/ivec.c $(LDFLAGS) $(LDLIBS)
+
+out/ppd/.stamp: models/ivec_models.json ppd/generate_ivec_ppd.py
+	rm -rf out/ppd
+	$(PYTHON) ppd/generate_ivec_ppd.py $< out/ppd
+	@touch $@
+
+out/test_status: tests/test_status.c $(STATUS)
+	@mkdir -p out
+	$(CC) $(CFLAGS) -pthread -Isrc/ivec -o $@ tests/test_status.c src/ivec/status.c $(LDFLAGS) $(LDLIBS)
+
+check: all out/test_status
+	out/test_status
+	$(PYTHON) -B tests/test_notify.py
+	tests/run_tests.sh
 
 install: all
-	install -d $(DESTDIR)/usr/lib/cups/filter
-	install -m 755 canonfilter $(DESTDIR)/usr/lib/cups/filter/canonfilter
-	install -d $(DESTDIR)/usr/share/cups/model/Canon
-	install -m 644 ppd/out/*.ppd $(DESTDIR)/usr/share/cups/model/Canon/
-	install -d $(DESTDIR)/etc/udev/rules.d
-	install -m 644 udev/60-canon-universal.rules $(DESTDIR)/etc/udev/rules.d/
+	install -Dm755 out/rastertocanonivec "$(DESTDIR)$(SERVERBIN)/filter/rastertocanonivec"
+	install -Dm755 out/cmdtocanonivec "$(DESTDIR)$(SERVERBIN)/filter/cmdtocanonivec"
+	install -d "$(DESTDIR)$(PPDDIR)"
+	install -m644 out/ppd/*.ppd "$(DESTDIR)$(PPDDIR)/"
+	install -Dm755 scripts/canonctl "$(DESTDIR)$(BINDIR)/canonctl"
+	install -Dm755 scripts/canon-ivec-notify "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
+	install -Dm644 data/canon-ivec-notify.desktop "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
+	install -Dm644 README.md "$(DESTDIR)$(DOCDIR)/README.md"
+	install -Dm644 docs/PROTOCOL_IVEC.md "$(DESTDIR)$(DOCDIR)/PROTOCOL_IVEC.md"
+
+uninstall:
+	rm -f "$(DESTDIR)$(SERVERBIN)/filter/rastertocanonivec" "$(DESTDIR)$(SERVERBIN)/filter/cmdtocanonivec"
+	rm -rf "$(DESTDIR)$(PPDDIR)" "$(DESTDIR)$(DOCDIR)"
+	rm -f "$(DESTDIR)$(BINDIR)/canonctl" "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
+	rm -f "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
 
 clean:
-	rm -f canonfilter
-	rm -rf ppd/out
+	rm -rf out
+
+.PHONY: all check install uninstall clean

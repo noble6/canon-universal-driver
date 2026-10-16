@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Desktop notifications for Canon printers.
+
+Watches local CUPS queues for Canon printers and pops up a notification when
+one needs attention (out of paper, jam, cover open, queue paused), with
+Resume / Cancel job / Open queue buttons.  The notification closes itself
+once the condition clears.
+
+Runs per user session (installed as an XDG autostart entry).  Needs only
+python3, ipptool (cups) and notify-send (libnotify).
+"""
+import csv
+import io
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+POLL = 3
+TEST = """{
+  OPERATION Get-Printer-Attributes
+  GROUP operation-attributes-tag
+  ATTR charset attributes-charset utf-8
+  ATTR naturalLanguage attributes-natural-language en
+  ATTR uri printer-uri $uri
+  ATTR keyword requested-attributes printer-state,printer-state-reasons,printer-state-message,printer-make-and-model
+  DISPLAY printer-state
+  DISPLAY printer-state-reasons
+  DISPLAY printer-state-message
+  DISPLAY printer-make-and-model
+}
+"""
+
+# reason (without -error/-warning/-report) -> title
+ATTENTION = {
+    'media-empty': 'Out of paper',
+    'media-needed': 'Load paper',
+    'media-jam': 'Paper jam',
+    'door-open': 'Cover open',
+    'cover-open': 'Cover open',
+    'marker-supply-empty': 'Out of ink',
+    'other': 'Printer needs attention',
+    'paused': 'Printer paused',
+    'offline': 'Printer offline',
+}
+HINT = {
+    'media-empty': 'Load paper, then press the printer\'s Black/Color (Start/OK) button. '
+                   'Printing continues where it stopped.',
+    'media-needed': 'Load paper, then press the printer\'s Black/Color (Start/OK) button.',
+    'media-jam': 'Remove the jammed paper, then press the printer\'s Stop/OK button.',
+    'paused': 'CUPS stopped the queue after an error. Press Resume to continue printing.',
+    'offline': 'Check that the printer is switched on and the cable is connected.',
+}
+
+
+def ipp_state(queue, testfile):
+    try:
+        out = subprocess.run(['ipptool', '-c', f'ipp://localhost/printers/{queue}', testfile],
+                             capture_output=True, text=True, timeout=10).stdout
+        rows = list(csv.reader(io.StringIO(out)))
+        if len(rows) >= 2 and len(rows[1]) >= 4:
+            return dict(zip(rows[0], rows[1]))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def queues():
+    try:
+        out = subprocess.run(['lpstat', '-e'], capture_output=True, text=True, timeout=10).stdout
+        return [q for q in out.split() if q]
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+
+def problems(st):
+    reasons = [r.strip() for r in st.get('printer-state-reasons', '').split(',') if r.strip()]
+    found = []
+    for r in reasons:
+        base = r
+        for suffix in ('-error', '-warning', '-report'):
+            if base.endswith(suffix):
+                base = base[:-len(suffix)]
+        if base in ATTENTION and not r.endswith('-report'):
+            found.append(base)
+    if st.get('printer-state') == 'stopped' and 'paused' not in found:
+        found.append('paused')
+    return found
+
+
+class Popup:
+    """One notification per queue, closed when the problem goes away."""
+
+    def __init__(self, queue):
+        self.queue = queue
+        self.proc = None
+        self.key = None
+        self.nid = None
+
+    def show(self, key, title, body):
+        if key == self.key and self.proc and self.proc.poll() is None:
+            return
+        self.close()
+        self.key = key
+        cmd = ['notify-send', '-a', 'Canon Printer', '-u', 'critical', '-i', 'printer-error', '-p',
+               '--action=resume=Resume', '--action=cancel=Cancel job', '--action=queue=Open queue',
+               f'{title}: {self.queue}', body]
+        try:
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+        except OSError:
+            return
+        threading.Thread(target=self._wait, args=(self.proc,), daemon=True).start()
+
+    def _wait(self, proc):
+        # -p prints the notification id first; the chosen action follows
+        self.nid = proc.stdout.readline().strip() or None
+        action = proc.stdout.readline().strip()
+        if action == 'resume':
+            # re-enable a paused queue; asks for the admin password via polkit
+            if subprocess.run(['cupsenable', self.queue], capture_output=True).returncode != 0:
+                subprocess.run(['pkexec', 'cupsenable', self.queue])
+        elif action == 'cancel':
+            subprocess.run(['cancel', '-a', self.queue])
+        elif action == 'queue':
+            tool = shutil.which('plasma-print-queue')
+            subprocess.Popen([tool, self.queue] if tool else ['xdg-open', f'http://localhost:631/printers/{self.queue}'])
+
+    def close(self):
+        if self.nid:
+            subprocess.run(['gdbus', 'call', '--session', '--dest', 'org.freedesktop.Notifications',
+                            '--object-path', '/org/freedesktop/Notifications',
+                            '--method', 'org.freedesktop.Notifications.CloseNotification', self.nid],
+                           capture_output=True)
+            self.nid = None
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+        self.proc = None
+        self.key = None
+
+
+def main():
+    if not shutil.which('ipptool') or not shutil.which('notify-send'):
+        sys.exit('canon-ivec-notify: needs ipptool (cups) and notify-send (libnotify)')
+    fd, testfile = tempfile.mkstemp(suffix='.test')
+    with os.fdopen(fd, 'w') as f:
+        f.write(TEST)
+    popups = {}
+    try:
+        while True:
+            for q in queues():
+                st = ipp_state(q, testfile)
+                if not st or 'canon' not in st.get('printer-make-and-model', '').lower():
+                    continue
+                p = popups.setdefault(q, Popup(q))
+                found = problems(st)
+                if found:
+                    main_reason = found[0]
+                    msg = st.get('printer-state-message', '').strip()
+                    hint = HINT.get(main_reason, '')
+                    body = msg if 'press' in msg.lower() or not hint else (msg + '\n' + hint).strip()
+                    p.show(','.join(found) + msg, ATTENTION[main_reason], body)
+                else:
+                    p.close()
+            time.sleep(POLL)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for p in popups.values():
+            p.close()
+        os.unlink(testfile)
+
+
+if __name__ == '__main__':
+    main()

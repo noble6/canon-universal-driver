@@ -1,0 +1,252 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# canonctl - set up and maintain Canon inkjets with the IVEC open driver.
+set -u
+
+PPDDIR=${CANON_IVEC_PPDDIR:-/usr/share/ppd/canon-ivec}
+SERVERBIN=${CANON_IVEC_SERVERBIN:-/usr/lib/cups}
+
+die() { echo "canonctl: $*" >&2; exit 1; }
+info() { echo "==> $*"; }
+asroot() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
+
+usage() {
+    cat <<'EOF'
+usage: canonctl <command> [args]
+
+Setup
+  detect                    list Canon printers on USB and the network
+  setup [URI] [--name Q]    create a print queue (USB: open IVEC driver,
+                            network: driverless IPP); picks the first printer
+                            found when URI is omitted
+  models [PATTERN]          list supported models
+  doctor                    check the installation and common problems
+  scan                      check/set up scanning (SANE)
+  report                    status messages the printer sent during recent jobs
+                            (run with sudo; useful for bug reports)
+
+Maintenance (queue defaults to the default printer; USB/IVEC queues only)
+  nozzle [Q]                print a nozzle check pattern
+  clean [Q] [all|group1|group2]   regular print head cleaning
+  deep-clean [Q] [all|group1]     deep cleaning (uses more ink)
+  flush [Q] [all|group1|group2]   ink flush / system cleaning (uses a LOT of ink)
+  align [Q]                 print head alignment
+  roller [Q]                paper feed roller cleaning
+  platen [Q]                bottom plate cleaning
+  status [Q]                queue state, last job messages, ink levels (IPP)
+
+Ink groups: group1 is usually black (pigment), group2 the colours.
+EOF
+}
+
+# ---- discovery ----
+
+devices() {
+    # prints: uri<TAB>device-id
+    lpinfo -l -v 2>/dev/null | awk '
+        /^Device: uri = /     { uri = $4 }
+        /^[ \t]+device-id = / { sub(/^[ \t]+device-id = /, ""); id = $0 }
+        /^[ \t]+location = /  { if (uri ~ /Canon|canon/ || id ~ /MFG:Canon/) print uri "\t" id; uri = ""; id = "" }'
+}
+
+mdl_of() { sed -n 's/.*MDL:\([^;]*\);.*/\1/p' <<<"$1"; }
+
+ppd_for_mdl() {
+    local mdl=$1 f
+    [ -n "$mdl" ] || return 1
+    f=$(grep -l -F "MDL:$mdl;" "$PPDDIR"/*.ppd 2>/dev/null | head -1)
+    [ -n "$f" ] || f=$(grep -l -i -F "*ModelName: \"Canon $mdl\"" "$PPDDIR"/*.ppd 2>/dev/null | head -1)
+    [ -n "$f" ] && echo "$f"
+}
+
+cmd_detect() {
+    local found=0 uri id mdl ppd
+    info "Canon printers seen by CUPS:"
+    while IFS=$'\t' read -r uri id; do
+        [ -n "$uri" ] || continue
+        found=1
+        mdl=$(mdl_of "$id")
+        ppd=$(ppd_for_mdl "$mdl")
+        printf '  %s\n    model: %s\n' "$uri" "${mdl:-unknown}"
+        case $uri in
+            usb:*) if [ -n "$ppd" ]; then echo "    driver: IVEC open driver ($(basename "$ppd"))"
+                   elif [[ $id == *IVEC* ]]; then echo "    driver: IVEC open driver (generic profile)"
+                   else echo "    driver: not an IVEC printer - try gutenprint"; fi ;;
+            *)     echo "    driver: driverless IPP (built into the printer)" ;;
+        esac
+    done < <(devices)
+    [ $found = 1 ] || echo "  none - is the printer on and connected? (USB: check 'lsusb | grep 04a9')"
+}
+
+cmd_models() {
+    grep -h '^\*ModelName:' "$PPDDIR"/*.ppd 2>/dev/null | sed 's/^\*ModelName: "\(.*\)"/\1/' |
+        sort | grep -i -- "${1:-}" || die "no models found in $PPDDIR"
+}
+
+queue_name() { sed 's/^Canon //; s/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_series$//; s/^/Canon_/' <<<"$1"; }
+
+cmd_setup() {
+    local uri="" name="" id="" mdl ppd
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --name) name=$2; shift 2 ;;
+            *) uri=$1; shift ;;
+        esac
+    done
+    local line
+    if [ -z "$uri" ]; then
+        # prefer USB, then IPP over network
+        line=$(devices | awk -F'\t' '$1 ~ /^usb:/' | head -1)
+        [ -n "$line" ] || line=$(devices | awk -F'\t' '$1 ~ /^(ipps?|dnssd):/' | head -1)
+        [ -n "$line" ] || die "no Canon printer found; connect it or pass a URI"
+        uri=${line%%$'\t'*}
+        id=${line#*$'\t'}
+    else
+        id=$(devices | awk -F'\t' -v u="$uri" '$1 == u { print $2 }' | head -1)
+    fi
+    mdl=$(mdl_of "$id")
+    [ -n "$name" ] || name=$(queue_name "${mdl:-Printer}")
+
+    case $uri in
+        usb:*)
+            ppd=$(ppd_for_mdl "$mdl")
+            if [ -z "$ppd" ]; then
+                [[ $id == *IVEC* ]] || die "$mdl does not speak IVEC; this driver cannot drive it"
+                ppd=$(ls "$PPDDIR"/Canon-IVEC_Generic-ivec.ppd 2>/dev/null) || die "generic PPD missing"
+                info "No exact profile for '$mdl', using the generic IVEC profile"
+            fi
+            info "Creating queue '$name' for $mdl on $uri"
+            asroot lpadmin -p "$name" -E -v "$uri" -P "$ppd" -o printer-is-shared=false \
+                -D "Canon ${mdl:-printer}" || die "lpadmin failed"
+            ;;
+        ipp:*|ipps:*|dnssd:*)
+            info "Creating driverless queue '$name' on $uri"
+            asroot lpadmin -p "$name" -E -v "$uri" -m everywhere -o printer-is-shared=false \
+                -D "Canon ${mdl:-printer} (network)" || die "lpadmin failed (is the printer reachable?)"
+            ;;
+        *) die "unsupported URI scheme: $uri" ;;
+    esac
+    asroot cupsenable "$name"
+    asroot cupsaccept "$name"
+    lpstat -d 2>/dev/null | grep -q "system default destination" || asroot lpadmin -d "$name"
+    info "Done. Test it with:  lp -d $name /usr/share/cups/data/testprint"
+}
+
+# ---- maintenance ----
+
+default_queue() {
+    local q
+    q=$(lpstat -d 2>/dev/null | sed -n 's/^system default destination: //p')
+    [ -n "$q" ] || die "no default printer; pass a queue name"
+    echo "$q"
+}
+
+is_queue() { lpstat -p "$1" >/dev/null 2>&1; }
+
+send_command() {
+    local q=$1 cmd=$2 ppdfile
+    is_queue "$q" || die "no such queue: $q"
+    ppdfile=$(lpoptions -p "$q" 2>/dev/null | grep -o "printer-make-and-model='[^']*'")
+    [[ $ppdfile == *"IVEC open driver"* ]] ||
+        echo "canonctl: warning: $q does not use the IVEC open driver; the command may be ignored" >&2
+    printf '#CUPS-COMMAND\n%s\n' "$cmd" |
+        lp -d "$q" -t "Maintenance: $cmd" -o document-format=application/vnd.cups-command >/dev/null ||
+        die "could not submit the command"
+    info "Sent '$cmd' to $q"
+}
+
+maint() {
+    local cmd=$1 q=${2:-} arg=${3:-}
+    # allow "canonctl clean group1" without a queue
+    if [ -n "$q" ] && ! is_queue "$q" && [[ $q == all || $q == group* ]]; then arg=$q; q=""; fi
+    [ -n "$q" ] || q=$(default_queue)
+    case $cmd in
+        clean)      if [ -z "$arg" ] || [ "$arg" = all ]; then send_command "$q" "Clean all"
+                    else send_command "$q" "com.canon.Cleaning regular $arg"; fi ;;
+        deep-clean) send_command "$q" "com.canon.Cleaning deep ${arg:-all}" ;;
+        flush)      read -r -p "Ink flush uses a large amount of ink. Continue? [y/N] " a
+                    [[ $a == [yY]* ]] || exit 0
+                    send_command "$q" "com.canon.Cleaning choke ${arg:-all}" ;;
+        nozzle)     send_command "$q" "PrintSelfTestPage"; echo "    Load plain A4/Letter paper." ;;
+        align)      send_command "$q" "PrintAlignmentPage"
+                    echo "    Load plain A4/Letter paper. On scanner models, place the printed"
+                    echo "    sheet on the glass when the printer asks and press OK/Start." ;;
+        roller)     send_command "$q" "com.canon.RollerCleaning roller" ;;
+        platen)     send_command "$q" "com.canon.RollerCleaning platen"
+                    echo "    Load one sheet of A4/Letter folded in half (fold facing up)." ;;
+    esac
+}
+
+cmd_status() {
+    local q=${1:-$(default_queue)} uri
+    lpstat -l -p "$q" || return 1
+    lpstat -W completed -o "$q" 2>/dev/null | tail -3
+    uri=$(lpstat -v "$q" 2>/dev/null | sed 's/.*: //')
+    if [[ $uri == ipp* ]]; then
+        ipptool -tv "$uri" get-printer-attributes.test 2>/dev/null |
+            grep -E 'marker-(names|levels)|printer-state-reasons' | sed 's/^ */  /'
+    else
+        echo "  (ink levels are reported over the network/IPP; G-series tanks have no level sensor)"
+    fi
+}
+
+cmd_report() {
+    local log=/var/log/cups/error_log
+    [ -r "$log" ] || die "cannot read $log; run: sudo canonctl report"
+    cupsctl 2>/dev/null | grep -q '_debug_logging=1' ||
+        echo "note: debug logging is off, enable it with: sudo cupsctl --debug-logging"
+    grep -a -E 'ivec-(backchannel|device-id)|STATE: [+-](media|door|other|marker)|WARNING: (Out of|Paper|A cover|The printer)' "$log" |
+        tail -n "${1:-60}"
+}
+
+# ---- checks ----
+
+cmd_doctor() {
+    local ok=1
+    check() { if eval "$2" >/dev/null 2>&1; then echo "  [ok]   $1"; else echo "  [FAIL] $1${3:+ -> $3}"; ok=0; fi; }
+    warn() { if eval "$2" >/dev/null 2>&1; then echo "  [ok]   $1"; else echo "  [warn] $1${3:+ -> $3}"; fi; }
+    info "Checking installation"
+    check "CUPS is running" "lpstat -r | grep -q 'is running'" "sudo systemctl enable --now cups"
+    check "rastertocanonivec installed" "test -x $SERVERBIN/filter/rastertocanonivec" "sudo make install"
+    check "cmdtocanonivec installed" "test -x $SERVERBIN/filter/cmdtocanonivec" "sudo make install"
+    check "model PPDs installed" "ls $PPDDIR/*.ppd" "sudo make install"
+    check "Ghostscript present" "command -v gs" "install ghostscript"
+    warn "old placeholder 'canonfilter' removed" "! test -e $SERVERBIN/filter/canonfilter" \
+        "sudo rm $SERVERBIN/filter/canonfilter"
+    warn "avahi-daemon running (network discovery)" "systemctl is-active avahi-daemon" \
+        "sudo systemctl enable --now avahi-daemon"
+    warn "mDNS name resolution (nss-mdns) configured" "grep -q mdns /etc/nsswitch.conf" "install nss-mdns and add mdns_minimal to /etc/nsswitch.conf"
+    warn "SANE installed (scanning)" "command -v scanimage" "install sane, sane-airscan and simple-scan"
+    warn "system-config-printer installed (KDE printer settings)" "command -v system-config-printer" \
+        "install system-config-printer"
+    warn "printer notifications running" "pgrep -f 'python3 .*bin/canon-ivec-notify'" "run canon-ivec-notify & (starts at login)"
+    warn "no ipp-usb grabbing the USB port" "! systemctl is-active ipp-usb" \
+        "ipp-usb can hold the printer's USB interface; stop it if USB printing stalls"
+    info "Queues using Canon devices"
+    lpstat -v 2>/dev/null | grep -i canon | sed 's/^/  /' || echo "  none"
+    [ $ok = 1 ]
+}
+
+cmd_scan() {
+    command -v scanimage >/dev/null || die "SANE missing: install sane, sane-airscan and simple-scan"
+    info "Looking for scanners (USB via pixma backend, network via eSCL/airscan)..."
+    scanimage -L 2>/dev/null | grep -i -E 'canon|pixma|escl|airscan' ||
+        echo "  none found - power the printer on; for USB make sure your user can access it (try as root once)"
+    echo "Scan from a GUI with simple-scan (GNOME Document Scanner) or skanpage,"
+    echo "or from the shell:  scanimage --format=png --resolution 300 -o scan.png"
+}
+
+cmd=${1:-help}
+shift || true
+case $cmd in
+    detect) cmd_detect ;;
+    setup) cmd_setup "$@" ;;
+    models) cmd_models "${1:-}" ;;
+    doctor) cmd_doctor ;;
+    scan) cmd_scan ;;
+    report) cmd_report "$@" ;;
+    status) cmd_status "$@" ;;
+    clean|deep-clean|flush|nozzle|align|roller|platen) maint "$cmd" "$@" ;;
+    help|-h|--help) usage ;;
+    *) usage; exit 1 ;;
+esac
