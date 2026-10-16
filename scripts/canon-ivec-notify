@@ -13,6 +13,7 @@ python3, ipptool (cups) and notify-send (libnotify).
 import csv
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -77,6 +78,22 @@ def queues():
         return []
 
 
+FLIP_DIR = '/run/canon-ivec'
+
+
+def flip_continue(job):
+    """Tell the filter waiting in manual 2-sided mode to print the backs."""
+    try:
+        open(os.path.join(FLIP_DIR, f'continue-{job}'), 'w').close()
+    except OSError as e:
+        subprocess.run(['notify-send', '-a', 'Canon Printer', 'Could not continue', str(e)])
+
+
+def flip_job(st):
+    m = re.search(r'Job (\d+): front sides', st.get('printer-state-message', ''))
+    return m.group(1) if m else None
+
+
 def problems(st):
     reasons = [r.strip() for r in st.get('printer-state-reasons', '').split(',') if r.strip()]
     found = []
@@ -101,14 +118,21 @@ class Popup:
         self.key = None
         self.nid = None
 
-    def show(self, key, title, body, paused):
+    def show(self, key, title, body, paused, flip_job=None):
         if key == self.key and self.proc and self.proc.poll() is None:
             return
         self.close()
         self.key = key
+        self.flip_job = flip_job
         # The printer continues by itself once the user fixes it and presses
-        # its button; only a queue CUPS paused needs resuming from here.
-        actions = ['--action=resume=Resume'] if paused else ['--action=cancel=Cancel printing']
+        # its button; only a queue CUPS paused needs resuming from here, and
+        # manual 2-sided printing waits for Continue.
+        if flip_job:
+            actions = ['--action=continue=Continue', '--action=cancel=Cancel printing']
+        elif paused:
+            actions = ['--action=resume=Resume']
+        else:
+            actions = ['--action=cancel=Cancel printing']
         cmd = ['notify-send', '-a', 'Canon Printer', '-u', 'critical', '-i', 'printer-error', '-p',
                *actions, '--action=queue=Open queue', f'{title}: {self.queue}', body]
         try:
@@ -121,7 +145,9 @@ class Popup:
         # -p prints the notification id first; the chosen action follows
         self.nid = proc.stdout.readline().strip() or None
         action = proc.stdout.readline().strip()
-        if action == 'resume':
+        if action == 'continue' and self.flip_job:
+            flip_continue(self.flip_job)
+        elif action == 'resume':
             # re-enable a paused queue; asks for the admin password via polkit
             if subprocess.run(['cupsenable', self.queue], capture_output=True).returncode != 0:
                 subprocess.run(['pkexec', 'cupsenable', self.queue])
@@ -164,6 +190,11 @@ def main():
                 if found:
                     main_reason = found[0]
                     msg = st.get('printer-state-message', '').strip()
+                    job = flip_job(st)
+                    if job:
+                        p.show('flip' + job, 'Turn the pages over', re.sub(r'^Job \d+: ', '', msg),
+                               False, flip_job=job)
+                        continue
                     hint = HINT.get(main_reason, '')
                     body = msg if 'press' in msg.lower() or not hint else (msg + '\n' + hint).strip()
                     p.show(','.join(found) + msg, ATTENTION[main_reason], body, main_reason == 'paused')

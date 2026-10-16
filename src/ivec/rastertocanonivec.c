@@ -52,6 +52,7 @@ typedef struct {
     int mono_only;
     int rotate_back;
     int optimization;
+    int manual_duplex;        /* no duplex unit: guided manual 2-sided */
     int base_res;             /* resolution the printable areas are given in */
     char quality_high[24], quality_draft[24], draft_media[256];
     char default_quality[24];
@@ -114,6 +115,7 @@ static int load_model(const char *path, model_t *m) {
             else if (!strcmp(key, "cnivecColorMode")) m->mono_only = !strcasecmp(val, "monochrome");
             else if (!strcmp(key, "cnivecRotateBack")) m->rotate_back = !strcasecmp(val, "True");
             else if (!strcmp(key, "cnivecOptimization")) m->optimization = !strcasecmp(val, "True");
+            else if (!strcmp(key, "cnivecManualDuplex")) m->manual_duplex = !strcasecmp(val, "True");
             else if (!strcmp(key, "cnivecDraftMedia")) snprintf(m->draft_media, sizeof(m->draft_media), " %s ", val);
             else if (!strcmp(key, "DefaultResolution")) m->base_res = atoi(line + 20);
             else if (!strcmp(key, "DefaultcupsPrintQuality")) snprintf(m->default_quality, sizeof(m->default_quality), "%s", line + 26);
@@ -351,6 +353,43 @@ static int render_page(cups_raster_t *in, const cups_page_header2_t *h, const si
     return rc;
 }
 
+/* Send pages first, first+step, ... as one printer job. */
+static int send_job(ivec_job_t *job, const ivec_page_config_t *cfg, membuf_t *pages, int npages,
+                    int first, int step) {
+    if (ivec_start_job(job) || ivec_set_configuration(job, cfg)) return -1;
+    for (int i = first; i < npages; i += step) {
+        if (ivec_send_page(job, i + step < npages, pages[i].data, pages[i].len)) return -1;
+        fprintf(stderr, "PAGE: %d 1\n", i + 1);
+    }
+    return ivec_end_job(job);
+}
+
+/* Manual 2-sided: after the fronts, wait for the user to reload the stack
+ * and confirm (canon-ivec-notify's Continue button or `canonctl continue`
+ * create the flag file).  Returns 0 to go on, -1 when cancelled/timed out. */
+#define FLIP_DIR "/run/canon-ivec"
+static int wait_for_flip(const char *job_id, int tumble) {
+    char flag[256];
+    const char *dir = getenv("CANON_IVEC_RUNDIR") ? getenv("CANON_IVEC_RUNDIR") : FLIP_DIR;
+    snprintf(flag, sizeof(flag), "%s/continue-%s", dir, job_id);
+    unlink(flag);
+    fflush(stdout);
+    fprintf(stderr, "STATE: +media-needed-warning\n");
+    fprintf(stderr, "WARNING: Job %s: front sides sent. When they have finished printing, take the stack, "
+                    "turn it over %s and put it back in the paper tray. Then press Continue.\n",
+            job_id, tumble ? "top to bottom (like a notepad)" : "like turning a book page");
+    int rc = -1;
+    for (int waited = 0; waited < 3600 && !canceled; waited++) {
+        if (access(flag, F_OK) == 0) { rc = 0; break; }
+        sleep(1);
+    }
+    unlink(flag);
+    fprintf(stderr, "STATE: -media-needed-warning\n");
+    if (rc) fprintf(stderr, "INFO: Back sides not printed (%s)\n", canceled ? "cancelled" : "timed out");
+    else fprintf(stderr, "INFO: Printing the back sides\n");
+    return rc;
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 6 || argc > 7) {
         fprintf(stderr, "Usage: %s job-id user title copies options [file]\n", argv[0]);
@@ -390,10 +429,11 @@ int main(int argc, char *argv[]) {
     /* "Optimization" models get 1-channel pages for grayscale jobs, and in
      * colour mode the whole job is held back until we know whether any page
      * actually contains colour. */
-    int hold = m->optimization && !gray_req;
+    int hold = m->optimization && !gray_req;   /* may also be set for manual 2-sided */
 
     membuf_t *color = NULL, *gray = NULL;   /* one per page */
     int npages = 0, cap = 0, colorful = 0, job_gray = 1, rc = 0, started = 0, draft = 0;
+    int manual = 0, tumble = 0;
     ivec_page_config_t cfg = { 0 };
     cups_page_header2_t h;
 
@@ -411,6 +451,13 @@ int main(int argc, char *argv[]) {
             cfg.borderless = size->borderless;
             cfg.monochrome = gray_req;
             cfg.duplex = h.Duplex != 0;
+            if (m->manual_duplex && h.Duplex) {
+                /* fronts and backs go as two printer jobs; hold everything */
+                manual = 1;
+                tumble = h.Tumble != 0;
+                cfg.duplex = 0;
+                hold = 1;
+            }
             const char *qc = quality_choice(m, nopts, opts);
             if (!strcasecmp(qc, "High") && m->quality_high[0]) {
                 cfg.printquality = m->quality_high;
@@ -436,6 +483,8 @@ int main(int argc, char *argv[]) {
 
         fprintf(stderr, "INFO: Processing page %d\n", npages);
         int rotate = m->rotate_back && h.Duplex && !h.Tumble && npages % 2 == 1;
+        /* manual 2-sided, short edge: the reloaded stack comes in upside down */
+        if (manual) rotate = tumble && npages % 2 == 0;
         int want_color = !(m->optimization && gray_req);
         int want_gray = m->optimization && (gray_req || (hold && job_gray));
         colorful = 0;
@@ -468,6 +517,15 @@ int main(int argc, char *argv[]) {
     if (rc == 0 && npages == 0) {
         fprintf(stderr, "ERROR: No pages found\n");
         rc = 1;
+    } else if (rc == 0 && manual) {
+        if (m->optimization && !gray_req) cfg.monochrome = job_gray;
+        membuf_t *pages = (m->optimization && (gray_req || job_gray)) ? gray : color;
+        fprintf(stderr, "INFO: Manual 2-sided: printing the front sides\n");
+        if (send_job(&job, &cfg, pages, npages, 0, 2)) rc = 1;
+        if (rc == 0 && npages > 1 && wait_for_flip(argv[1], tumble) == 0) {
+            ivec_job_init(&job, stdout, m->protocol, m->datetime, cupsGetOption("job-uuid", nopts, opts), "linux");
+            if (send_job(&job, &cfg, pages, npages, 1, 2)) rc = 1;
+        }
     } else if (rc == 0 && hold) {
         cfg.monochrome = job_gray;
         fprintf(stderr, "INFO: Job is %s\n", job_gray ? "grayscale only" : "colour");
@@ -487,7 +545,7 @@ int main(int argc, char *argv[]) {
             cfg.borderless ? " borderless" : "", cfg.monochrome ? "mono" : "color", cfg.duplex ? " duplex" : "",
             cfg.printquality ? cfg.printquality : "printer-default", npages);
     /* always close a started job so the printer does not wait forever */
-    if (started && ivec_end_job(&job)) rc = 1;
+    if (started && !manual && ivec_end_job(&job)) rc = 1;
     /* stay around while the printer works through the job, so paper-out and
      * similar conditions reach the desktop */
     ivec_monitor_finish(canceled ? 0 : 3600);

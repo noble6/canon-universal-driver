@@ -156,6 +156,16 @@ def ppd_for(m, version):
         out.append(f'*cnivecMediaType {x["name"]}: "{x["ivec"]}"\n')
     out.append('\n')
 
+    if not m['duplex'] and m['id'] != 'generic':
+        # No automatic duplex: the standard Duplex option drives a guided
+        # manual mode (fronts, pause for the user to flip the stack, backs).
+        out.append('*cnivecManualDuplex: "True"\n'
+                   '*OpenUI *Duplex/2-Sided Printing (manual): PickOne\n*OrderDependency: 10 AnySetup *Duplex\n'
+                   '*DefaultDuplex: None\n'
+                   '*Duplex None/Off: "<</Duplex false>>setpagedevice"\n'
+                   '*Duplex DuplexNoTumble/Long Edge (flip pages by hand): "<</Duplex true/Tumble false>>setpagedevice"\n'
+                   '*Duplex DuplexTumble/Short Edge (flip pages by hand): "<</Duplex true/Tumble true>>setpagedevice"\n'
+                   '*CloseUI: *Duplex\n\n')
     if m['duplex']:
         out.append('*OpenUI *Duplex/2-Sided Printing: PickOne\n*OrderDependency: 10 AnySetup *Duplex\n'
                    '*DefaultDuplex: None\n'

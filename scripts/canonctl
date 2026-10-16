@@ -34,6 +34,8 @@ Maintenance (queue defaults to the default printer; USB/IVEC queues only)
   roller [Q]                paper feed roller cleaning
   platen [Q]                bottom plate cleaning
   status [Q]                queue state, last job messages, ink levels (IPP)
+  continue                  print the back sides of a manual 2-sided job
+                            after turning the stack over
 
 Ink groups: group1 is usually black (pigment), group2 the colours.
 EOF
@@ -207,6 +209,19 @@ cmd_report() {
         tail -n "${1:-60}"
 }
 
+cmd_continue() {
+    local q job
+    for q in $(lpstat -e 2>/dev/null); do
+        job=$(lpstat -l -p "$q" 2>/dev/null | sed -n 's/.*Job \([0-9]*\): front sides.*/\1/p' | head -1)
+        if [ -n "$job" ]; then
+            : > "/run/canon-ivec/continue-$job" || die "cannot write /run/canon-ivec (reinstall: sudo make install)"
+            info "Printing the back sides of job $job on $q"
+            return 0
+        fi
+    done
+    die "no 2-sided job is waiting"
+}
+
 # ---- checks ----
 
 cmd_doctor() {
@@ -256,6 +271,7 @@ case $cmd in
     doctor) cmd_doctor ;;
     scan) cmd_scan ;;
     report) cmd_report "$@" ;;
+    continue) cmd_continue ;;
     status) cmd_status "$@" ;;
     clean|deep-clean|flush|nozzle|align|roller|platen) maint "$cmd" "$@" ;;
     help|-h|--help) usage ;;

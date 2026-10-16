@@ -3,6 +3,7 @@
 ## 1.2.0
 
 - Print quality: standard `cupsPrintQuality` option (Draft / Normal / High), mapped from IPP `print-quality`, so every dialog shows it. Normal keeps the output identical to Canon's driver; High sends `printquality=best`; Draft sends `fast_draft` at the model's draft resolution (300 dpi on G3010 and similar) on paper types that allow it.
+- Guided manual 2-sided printing on the 44 models without a duplex unit: the standard 2-sided option prints the fronts, a notification asks to turn the stack over, and Continue (or `canonctl continue`) prints the backs.
 - Duplicate printers: `71-canon-ivec.rules` stops system-config-printer from adding a second `usb://` queue for Canon printers; `install-local.sh` removes existing duplicates.
 
 ## 1.1.0

@@ -54,6 +54,7 @@ install: all
 	install -m644 out/ppd/*.ppd "$(DESTDIR)$(PPDDIR)/"
 	install -Dm755 scripts/canonctl "$(DESTDIR)$(BINDIR)/canonctl"
 	install -Dm755 scripts/canon-ivec-notify "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
+	install -Dm644 data/canon-ivec.tmpfiles "$(DESTDIR)$(PREFIX)/lib/tmpfiles.d/canon-ivec.conf"
 	install -Dm644 data/71-canon-ivec.rules "$(DESTDIR)$(UDEVDIR)/rules.d/71-canon-ivec.rules"
 	install -Dm644 data/canon-ivec-notify.desktop "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
 	install -Dm644 README.md "$(DESTDIR)$(DOCDIR)/README.md"
@@ -66,6 +67,7 @@ uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/canonctl" "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
 	rm -f "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
 	rm -f "$(DESTDIR)$(UDEVDIR)/rules.d/71-canon-ivec.rules"
+	rm -f "$(DESTDIR)$(PREFIX)/lib/tmpfiles.d/canon-ivec.conf"
 
 clean:
 	rm -rf out

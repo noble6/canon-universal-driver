@@ -97,6 +97,15 @@ qrun Draft "<ivec:printquality>fast_draft</ivec:printquality>"
 if cupsfilter -c "$T/cups-files.conf" -p "$g3010" -m printer/foo -e "$T/t.pdf" 2>/dev/null | grep -q -a printquality; then
     echo "FAIL G3010 quality Normal sends printquality"; fail=1
 else echo "PASS G3010 quality Normal leaves it to the printer"; fi
+# manual 2-sided: fronts as one job, pause, backs after "Continue"
+gs -q -sDEVICE=pdfwrite -o "$T/t3.pdf" -c '/Helvetica findfont 40 scalefont setfont' \
+   -c '72 700 moveto (1) show showpage 72 700 moveto (2) show showpage 72 700 moveto (3) show showpage'
+cupsfilter -p "$g3010" -m application/vnd.cups-raster -o Duplex=DuplexNoTumble "$T/t3.pdf" > "$T/dup.ras" 2>/dev/null
+mkdir -p "$T/run"; (sleep 2; touch "$T/run/continue-9") &
+if CANON_IVEC_RUNDIR="$T/run" PPD="$g3010" "$ROOT/out/rastertocanonivec" 9 u t 1 "" "$T/dup.ras" > "$T/dup.bin" 2> "$T/dup.log" &&
+   [ "$(grep -a -c '<ivec:operation>StartJob' "$T/dup.bin")" = 2 ] && grep -q 'media-needed' "$T/dup.log"; then
+    echo "PASS manual 2-sided (fronts, pause, backs)"
+else echo "FAIL manual 2-sided"; fail=1; fi
 cmdrun G3010 "$g3010" "Clean all" "<ivec:operation>Cleaning</ivec:operation>"
 cmdrun G3010 "$g3010" "PrintSelfTestPage" "nozzle_check"
 cmdrun G3010 "$g3010" "com.canon.Cleaning deep all" "<ivec:type>deep</ivec:type>"

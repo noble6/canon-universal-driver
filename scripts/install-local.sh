@@ -23,6 +23,7 @@ pacman -S --needed system-config-printer sane sane-airscan simple-scan
 
 echo "==> Installing the driver"
 make install
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/canon-ivec.conf
 systemctl enable --now cups
 systemctl restart cups
 for _ in 1 2 3 4 5; do lpstat -r >/dev/null 2>&1 && break; sleep 1; done

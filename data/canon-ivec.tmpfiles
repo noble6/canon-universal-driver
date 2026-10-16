@@ -1,0 +1,3 @@
+# Manual 2-sided printing: the print filter waits here for the user's
+# "Continue" (canon-ivec-notify or `canonctl continue`) before the back sides.
+d /run/canon-ivec 1777 root root -
