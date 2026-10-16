@@ -5,6 +5,7 @@ pkgrel=1
 pkgdesc="Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets using the IVEC protocol (G, E, TS, TR, MG, MB, GX, GM series)"
 arch=('x86_64' 'aarch64' 'armv7h' 'i686')
 url="https://github.com/noble6/canon-universal-driver"
+options=('!debug')
 license=('GPL-3.0-or-later')
 depends=('cups' 'cups-filters' 'ghostscript' 'python' 'libusb')
 install=canon-ivec-driver.install

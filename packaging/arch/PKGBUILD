@@ -6,6 +6,7 @@ pkgrel=1
 pkgdesc="Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets (G1010-G4010, G3020, GX, E, TS, TR, MG): printing, maintenance, paper-out alerts, guided 2-sided"
 arch=('x86_64' 'aarch64' 'armv7h' 'i686')
 url="https://github.com/noble6/canon-universal-driver"
+options=('!debug')
 license=('GPL-3.0-or-later')
 depends=('cups' 'cups-filters' 'ghostscript' 'python' 'libusb')
 makedepends=('gcc' 'make')
@@ -19,7 +20,7 @@ optdepends=('libnotify: paper-out and error notifications'
             'simple-scan: scanning GUI')
 install=canon-ivec-driver.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('9942e8083b693270bb8a72e2ddaa91446bfb8e83a961ddcd6ff90c15f7aabaa4')
 
 build() {
   cd "canon-universal-driver-$pkgver"
