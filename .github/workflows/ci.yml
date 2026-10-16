@@ -8,7 +8,7 @@ jobs:
   ubuntu:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Dependencies
         run: |
           sudo apt-get update
@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Dependencies
         run: pacman -Syu --noconfirm --needed base-devel cups cups-filters ghostscript python libusb git
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: make
       - name: Offline tests
