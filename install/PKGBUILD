@@ -1,12 +1,13 @@
 # Build from the local checkout:  cd install && makepkg -si
 pkgname=canon-ivec-driver
-pkgver=1.2.0
+pkgver=1.3.0
 pkgrel=1
 pkgdesc="Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets using the IVEC protocol (G, E, TS, TR, MG, MB, GX, GM series)"
 arch=('x86_64' 'aarch64' 'armv7h' 'i686')
 url="https://github.com/noble6/canon-universal-driver"
 license=('GPL-3.0-or-later')
 depends=('cups' 'cups-filters' 'ghostscript' 'python' 'libusb')
+install=canon-ivec-driver.install
 optdepends=('libnotify: paper-out and error notifications'
             'pyside6: picture guide for manual 2-sided printing (or python-gobject + gtk4)'
             'system-config-printer: extra features in KDE printer settings'

@@ -1,0 +1,10 @@
+post_install() {
+  echo ">> Connect the printer (USB) and run:  canonctl setup"
+  echo ">> Then test:  lp /usr/share/cups/data/testprint"
+  echo ">> Paper-out alerts start at your next login (or run: canon-ivec-notify &)."
+}
+
+post_upgrade() {
+  echo ">> If an existing USB queue still uses usb://Canon/..., run:  canonctl setup"
+  echo ">> Refresh queue options:  sudo lpadmin -p <queue> -m <model PPD from: lpinfo -m | grep ivec>"
+}

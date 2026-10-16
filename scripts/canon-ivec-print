@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Print files from the file manager's right-click menu.
+
+    canon-ivec-print [--two-sided] [--gray] [--printer QUEUE] FILE...
+
+PDF, PostScript, images and plain text go straight to CUPS.  Office
+documents (odt, docx, xlsx, pptx, ...) are converted to PDF with
+LibreOffice first, since CUPS cannot read them.  Uses the default printer
+unless --printer is given, and reports the result as a notification.
+"""
+import argparse
+import mimetypes
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+DIRECT = ('application/pdf', 'application/postscript', 'text/plain')
+DIRECT_IMAGES = ('image/jpeg', 'image/png', 'image/tiff', 'image/gif', 'image/bmp', 'image/x-portable-anymap',
+                 'image/x-portable-pixmap', 'image/x-portable-graymap', 'image/x-portable-bitmap')
+OFFICE_EXT = {'.odt', '.ods', '.odp', '.odg', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf', '.csv',
+              '.fodt', '.fods', '.fodp', '.wpd', '.pages', '.numbers', '.key'}
+
+
+def notify(title, body='', icon='document-print', urgent=False):
+    if shutil.which('notify-send'):
+        subprocess.run(['notify-send', '-a', 'Print', '-i', icon, *(['-u', 'critical'] if urgent else []),
+                        title, body])
+    else:
+        print(f'{title}: {body}', file=sys.stderr)
+
+
+def mime_of(path):
+    try:
+        out = subprocess.run(['file', '--brief', '--mime-type', path], capture_output=True, text=True,
+                             timeout=10).stdout.strip()
+        if out:
+            return out
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return mimetypes.guess_type(path)[0] or ''
+
+
+def to_pdf(path, tmp):
+    """Convert an office document with LibreOffice; returns the PDF path."""
+    office = shutil.which('soffice') or shutil.which('libreoffice')
+    if not office:
+        raise RuntimeError('LibreOffice is needed to print this kind of document')
+    # a private profile avoids clashing with a running LibreOffice window
+    profile = 'file://' + os.path.join(tmp, 'lo-profile')
+    r = subprocess.run([office, f'-env:UserInstallation={profile}', '--headless', '--convert-to', 'pdf',
+                        '--outdir', tmp, path], capture_output=True, text=True, timeout=300)
+    pdf = os.path.join(tmp, os.path.splitext(os.path.basename(path))[0] + '.pdf')
+    if r.returncode != 0 or not os.path.exists(pdf):
+        raise RuntimeError(f'LibreOffice could not convert it ({r.stderr.strip()[:200]})')
+    return pdf
+
+
+def default_printer():
+    out = subprocess.run(['lpstat', '-d'], capture_output=True, text=True).stdout
+    return out.split(':', 1)[1].strip() if ':' in out else None
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument('--two-sided', action='store_true')
+    ap.add_argument('--gray', action='store_true')
+    ap.add_argument('--printer')
+    ap.add_argument('--dry-run', action='store_true', help='show what would be sent, print nothing')
+    ap.add_argument('files', nargs='+')
+    a = ap.parse_args()
+
+    printer = a.printer or default_printer()
+    if not printer:
+        notify('No printer set up', 'Run "canonctl setup" or add a printer in System Settings.',
+               'printer-error', True)
+        return 1
+
+    opts = []
+    if a.two_sided:
+        opts += ['-o', 'sides=two-sided-long-edge']
+    if a.gray:
+        opts += ['-o', 'print-color-mode=monochrome', '-o', 'ColorModel=Gray']
+
+    sent, failed = [], []
+    with tempfile.TemporaryDirectory(prefix='canon-ivec-print-') as tmp:
+        for path in a.files:
+            name = os.path.basename(path)
+            try:
+                if os.path.isdir(path):
+                    raise RuntimeError('folders cannot be printed')
+                mime = mime_of(path)
+                ext = os.path.splitext(path)[1].lower()
+                if ext in OFFICE_EXT or mime.startswith('application/vnd.oasis') or 'officedocument' in mime \
+                        or mime in ('application/msword', 'application/vnd.ms-excel', 'application/rtf'):
+                    src = to_pdf(path, tmp)
+                elif mime in DIRECT or mime in DIRECT_IMAGES or mime.startswith('text/'):
+                    src = path
+                elif mime.startswith('image/') and shutil.which('magick'):
+                    src = os.path.join(tmp, name + '.png')        # webp, heic, ... -> png
+                    subprocess.run(['magick', path, src], check=True, capture_output=True, timeout=120)
+                else:
+                    raise RuntimeError(f'cannot print files of type {mime or "unknown"}')
+                fit = ['-o', 'fit-to-page'] if mime.startswith('image/') else []
+                cmd = ['lp', '-d', printer, '-t', name, *opts, *fit, src]
+                if a.dry_run:
+                    print(' '.join(cmd[:-1]), os.path.basename(src), f'[{mime}]')
+                    sent.append(name)
+                    continue
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if r.returncode != 0:
+                    raise RuntimeError(r.stderr.strip() or 'lp failed')
+                sent.append(name)
+            except Exception as e:  # report every file, keep going
+                failed.append(f'{name}: {e}')
+
+    if a.dry_run:
+        print('failed:', failed)
+        return 0 if not failed else 1
+    if sent:
+        extra = ' (2-sided)' if a.two_sided else ''
+        notify(f'Printing on {printer}{extra}', '\n'.join(sent[:8]) + ('\n...' if len(sent) > 8 else ''))
+    if failed:
+        notify('Some files were not printed', '\n'.join(failed[:6]), 'printer-error', True)
+    return 0 if not failed else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

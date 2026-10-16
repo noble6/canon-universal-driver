@@ -17,38 +17,53 @@ If you kept a Windows partition only because your Canon printer or its maintenan
 - **Paper-out, jam and cover-open alerts** as desktop notifications, like the Windows status monitor, and a **Cancel** that really stops the printer (the stock CUPS USB backend cannot do that with Canon printers).
 - **2-sided printing on printers without a duplex unit**: the front sides print, a window shows a picture of how to put the stack back, and Continue prints the backs (verified on a G3010).
 - **Print quality** Draft / Normal / High in every print dialog.
+- **Right-click Print** in Dolphin (KDE) for PDFs, images, text and office documents, including 2-sided and grayscale.
 - **Works everywhere printing works:** LibreOffice, Firefox, Chrome, GTK and Qt apps, and the `lp` command line all see the printer and its options.
 
-## Quick start (Arch Linux, Manjaro, EndeavourOS, CachyOS)
+## Install
+
+### Arch Linux, Manjaro, EndeavourOS, CachyOS (pacman repository)
+
+Add this to `/etc/pacman.conf`:
+
+```ini
+[canon-ivec]
+SigLevel = Optional TrustAll
+Server = https://github.com/noble6/canon-universal-driver/releases/latest/download
+```
+
+Then:
+
+```bash
+sudo pacman -Sy canon-ivec-driver
+canonctl setup                       # creates the print queue for your printer
+```
+
+Updates arrive with your normal `sudo pacman -Syu`. The packages are built by GitHub Actions from the tagged source ([release workflow](.github/workflows/release.yml)). An AUR package (`canon-ivec-driver`, recipe in [packaging/arch](packaging/arch)) is on its way.
+
+### Debian, Ubuntu, Linux Mint
+
+Download `canon-ivec-driver_*_amd64.deb` from the [latest release](https://github.com/noble6/canon-universal-driver/releases/latest), then:
+
+```bash
+sudo apt install ./canon-ivec-driver_*_amd64.deb
+canonctl setup
+```
+
+### From source (any distribution)
 
 ```bash
 git clone https://github.com/noble6/canon-universal-driver.git
 cd canon-universal-driver
-sudo pacman -S --needed base-devel cups ghostscript python libusb
-make && make check
-sudo scripts/install-local.sh        # installs, creates the queue, starts notifications
-lp /usr/share/cups/data/testprint
-```
-
-Or build a package: `cd install && makepkg -si`, then run `canonctl setup`.
-
-### Debian, Ubuntu, Linux Mint
-
-```bash
-sudo apt install build-essential libcups2-dev libusb-1.0-0-dev cups cups-filters ghostscript python3 libnotify-bin
+# Arch:   sudo pacman -S --needed base-devel cups ghostscript python libusb
+# Debian: sudo apt install build-essential libcups2-dev libusb-1.0-0-dev cups cups-filters ghostscript python3 libnotify-bin
+# Fedora: sudo dnf install gcc make cups-devel libusb1-devel cups cups-filters ghostscript python3 libnotify
 make && make check
 sudo make install
 canonctl setup
 ```
 
-### Fedora
-
-```bash
-sudo dnf install gcc make cups-devel libusb1-devel cups cups-filters ghostscript python3 libnotify
-make && make check
-sudo make install
-canonctl setup
-```
+On Arch, `sudo scripts/install-local.sh` does all of this, removes leftovers of other Canon drivers and starts the notifications.
 
 ## Using it
 
@@ -65,6 +80,10 @@ Print from any application. Useful options:
 | 2-sided | every print dialog | Long edge, Short edge. Models without a duplex unit (G3010 and other ink-tank models) get guided manual 2-sided printing: the front sides print, a window shows a picture of how to put the stack back (blank side facing you, TOP edge in first), and **Continue** prints the backs (or run `canonctl continue`). |
 
 From the shell: `lp -o PageSize=4x6.bl -o MediaType=glossygold photo.jpg`, or list options with `lpoptions -l`.
+
+### Right-click printing
+
+In Dolphin, right-click a file and choose **Print**, **Print 2-sided** or **Print in grayscale**. It works for PDFs, images, text and office documents; office files are converted with LibreOffice first. From a terminal: `canon-ivec-print file.pdf`.
 
 ### Maintenance
 

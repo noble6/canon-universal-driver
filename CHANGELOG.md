@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+- Right-click **Print / Print 2-sided / Print in grayscale** in Dolphin (KDE service menu) via `canon-ivec-print`; office documents are converted with LibreOffice first.
+- Packages for every release, built by GitHub Actions: an Arch package plus a pacman repository (`Server = .../releases/latest/download`) and a Debian/Ubuntu `.deb`.
+- AUR-ready recipe in `packaging/arch`.
+
 ## 1.2.0
 
 - Print quality: standard `cupsPrintQuality` option (Draft / Normal / High), mapped from IPP `print-quality`, so every dialog shows it. Normal keeps the output identical to Canon's driver; High sends `printquality=best`; Draft sends `fast_draft` at the model's draft resolution (300 dpi on G3010 and similar) on paper types that allow it.

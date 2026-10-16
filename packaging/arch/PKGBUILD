@@ -1,0 +1,38 @@
+# Maintainer: noble6 <https://github.com/noble6>
+# AUR / release package: builds the tagged release from GitHub.
+pkgname=canon-ivec-driver
+pkgver=1.3.0
+pkgrel=1
+pkgdesc="Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets (G1010-G4010, G3020, GX, E, TS, TR, MG): printing, maintenance, paper-out alerts, guided 2-sided"
+arch=('x86_64' 'aarch64' 'armv7h' 'i686')
+url="https://github.com/noble6/canon-universal-driver"
+license=('GPL-3.0-or-later')
+depends=('cups' 'cups-filters' 'ghostscript' 'python' 'libusb')
+makedepends=('gcc' 'make')
+checkdepends=('ghostscript' 'cups')
+optdepends=('libnotify: paper-out and error notifications'
+            'pyside6: picture guide for manual 2-sided printing (or python-gobject + gtk4)'
+            'libreoffice: right-click printing of office documents'
+            'system-config-printer: extra features in KDE printer settings'
+            'sane: USB scanning via the pixma backend'
+            'sane-airscan: network scanning (eSCL)'
+            'simple-scan: scanning GUI')
+install=canon-ivec-driver.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "canon-universal-driver-$pkgver"
+  make
+}
+
+check() {
+  cd "canon-universal-driver-$pkgver"
+  make check
+}
+
+package() {
+  cd "canon-universal-driver-$pkgver"
+  make DESTDIR="$pkgdir" install
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

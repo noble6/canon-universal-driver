@@ -1,0 +1,105 @@
+name: Release packages
+
+# Builds installable packages for every published release and attaches them:
+#   - Arch Linux: the package plus a pacman repository database, so users can
+#     add  Server = https://github.com/noble6/canon-universal-driver/releases/latest/download
+#   - Debian / Ubuntu: a .deb
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build (e.g. v1.3.0)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Dependencies
+        run: pacman -Syu --noconfirm --needed base-devel cups cups-filters ghostscript python libusb git github-cli
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build package
+        run: |
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c "cd '$GITHUB_WORKSPACE/install' && makepkg -f --noconfirm"
+      - name: Pacman repository
+        run: |
+          mkdir repo
+          cp install/*.pkg.tar.zst repo/
+          cd repo
+          repo-add canon-ivec.db.tar.gz *.pkg.tar.zst
+          # release assets cannot be symlinks
+          rm canon-ivec.db canon-ivec.files
+          cp canon-ivec.db.tar.gz canon-ivec.db
+          cp canon-ivec.files.tar.gz canon-ivec.files
+          ls -l
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release upload "$TAG" repo/* --clobber -R "$GITHUB_REPOSITORY"
+
+  debian:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcups2-dev libusb-1.0-0-dev cups cups-filters ghostscript python3
+      - name: Build and test
+        run: make && make check
+      - name: Build .deb
+        run: |
+          ver=${TAG#v}
+          root=pkgroot
+          make DESTDIR="$PWD/$root" install
+          install -Dm644 LICENSE "$root/usr/share/doc/canon-ivec-driver/copyright"
+          mkdir -p "$root/DEBIAN"
+          cat > "$root/DEBIAN/control" <<CONTROL
+          Package: canon-ivec-driver
+          Version: $ver
+          Architecture: amd64
+          Maintainer: noble6 <https://github.com/noble6>
+          Depends: cups, cups-filters, ghostscript, python3, libcups2, libusb-1.0-0
+          Recommends: libnotify-bin
+          Suggests: libreoffice, sane-utils, sane-airscan, simple-scan, python3-pyside6.qtsvgwidgets
+          Section: utils
+          Priority: optional
+          Homepage: https://github.com/noble6/canon-universal-driver
+          Description: Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets (IVEC)
+           Printing, maintenance (cleaning, nozzle check, alignment), paper-out
+           alerts and guided 2-sided printing for 164 Canon models such as the
+           PIXMA G1010/G2010/G3010/G4010, without Canon's binary software.
+          CONTROL
+          sed -i 's/^          //' "$root/DEBIAN/control"
+          cat > "$root/DEBIAN/postinst" <<'POSTINST'
+          #!/bin/sh
+          set -e
+          systemd-tmpfiles --create /usr/lib/tmpfiles.d/canon-ivec.conf 2>/dev/null || true
+          udevadm control --reload-rules 2>/dev/null || true
+          echo ">> Connect the printer (USB) and run:  canonctl setup"
+          POSTINST
+          sed -i 's/^          //' "$root/DEBIAN/postinst"
+          chmod 755 "$root/DEBIAN/postinst"
+          dpkg-deb --root-owner-group --build "$root" "canon-ivec-driver_${ver}_amd64.deb"
+          dpkg-deb --info "canon-ivec-driver_${ver}_amd64.deb"
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" canon-ivec-driver_*_amd64.deb --clobber -R "$GITHUB_REPOSITORY"

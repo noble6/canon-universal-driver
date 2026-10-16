@@ -43,6 +43,7 @@ out/test_status: tests/test_status.c $(STATUS)
 check: all out/test_status
 	out/test_status
 	$(PYTHON) -B tests/test_notify.py
+	@$(PYTHON) -B tests/test_print_helper.py
 	@$(PYTHON) -B scripts/canon-ivec-flip --svg out/flip.svg && grep -q '</svg>' out/flip.svg && echo "PASS flip diagram"
 	tests/run_tests.sh
 
@@ -56,6 +57,9 @@ install: all
 	install -Dm755 scripts/canonctl "$(DESTDIR)$(BINDIR)/canonctl"
 	install -Dm755 scripts/canon-ivec-notify "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
 	install -Dm755 scripts/canon-ivec-flip "$(DESTDIR)$(BINDIR)/canon-ivec-flip"
+	install -Dm755 scripts/canon-ivec-print "$(DESTDIR)$(BINDIR)/canon-ivec-print"
+	# right-click "Print" in Dolphin (KDE)
+	install -Dm644 data/canon-ivec-print.desktop "$(DESTDIR)$(PREFIX)/share/kio/servicemenus/canon-ivec-print.desktop"
 	install -Dm644 data/canon-ivec.tmpfiles "$(DESTDIR)$(PREFIX)/lib/tmpfiles.d/canon-ivec.conf"
 	install -Dm644 data/71-canon-ivec.rules "$(DESTDIR)$(UDEVDIR)/rules.d/71-canon-ivec.rules"
 	install -Dm644 data/canon-ivec-notify.desktop "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
@@ -67,6 +71,7 @@ uninstall:
 	rm -f "$(DESTDIR)$(SERVERBIN)/backend/canonivec"
 	rm -rf "$(DESTDIR)$(PPDDIR)" "$(DESTDIR)$(DOCDIR)"
 	rm -f "$(DESTDIR)$(BINDIR)/canonctl" "$(DESTDIR)$(BINDIR)/canon-ivec-notify" "$(DESTDIR)$(BINDIR)/canon-ivec-flip"
+	rm -f "$(DESTDIR)$(BINDIR)/canon-ivec-print" "$(DESTDIR)$(PREFIX)/share/kio/servicemenus/canon-ivec-print.desktop"
 	rm -f "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
 	rm -f "$(DESTDIR)$(UDEVDIR)/rules.d/71-canon-ivec.rules"
 	rm -f "$(DESTDIR)$(PREFIX)/lib/tmpfiles.d/canon-ivec.conf"

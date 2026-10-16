@@ -1,0 +1,24 @@
+[Desktop Entry]
+Type=Service
+Name=Print
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+MimeType=application/pdf;application/postscript;text/plain;text/markdown;text/csv;image/jpeg;image/png;image/tiff;image/gif;image/bmp;image/webp;image/heic;application/vnd.oasis.opendocument.text;application/vnd.oasis.opendocument.spreadsheet;application/vnd.oasis.opendocument.presentation;application/vnd.oasis.opendocument.graphics;application/msword;application/vnd.ms-excel;application/vnd.ms-powerpoint;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.openxmlformats-officedocument.presentationml.presentation;application/rtf;
+Actions=print;printTwoSided;printGray;
+X-KDE-Submenu=Print
+X-KDE-Priority=TopLevel
+Icon=document-print
+
+[Desktop Action print]
+Name=Print
+Icon=document-print
+Exec=canon-ivec-print %F
+
+[Desktop Action printTwoSided]
+Name=Print 2-sided
+Icon=document-print
+Exec=canon-ivec-print --two-sided %F
+
+[Desktop Action printGray]
+Name=Print in grayscale
+Icon=document-print
+Exec=canon-ivec-print --gray %F
