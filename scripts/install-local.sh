@@ -32,6 +32,11 @@ if lpstat -p "$QUEUE" >/dev/null 2>&1; then
     mdl=$(lpinfo -l -v 2>/dev/null | sed -n 's/.*device-id = .*MDL:\([^;]*\);.*/\1/p' | head -1)
     ppd=$(grep -l -F "MDL:${mdl:-G3010 series};" /usr/share/ppd/canon-ivec/*.ppd | head -1)
     [ -n "$ppd" ] && lpadmin -p "$QUEUE" -P "$ppd" && echo "==> Updated queue $QUEUE ($(basename "$ppd"))"
+    # move USB queues to the canonivec backend (status, working cancel)
+    uri=$(lpinfo -v 2>/dev/null | awk '$2 ~ /^canonivec:/ {print $2}' | head -1)
+    if [ -n "$uri" ] && lpstat -v "$QUEUE" | grep -q ' usb://'; then
+        lpadmin -p "$QUEUE" -v "$uri" && echo "==> $QUEUE now uses $uri"
+    fi
 else
     echo "==> Creating the print queue"
     canonctl setup --name "$QUEUE"

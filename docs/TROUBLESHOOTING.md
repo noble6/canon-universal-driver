@@ -13,10 +13,20 @@ canonctl detect      # what CUPS sees on USB and the network
 - Make sure CUPS is running: `sudo systemctl enable --now cups`.
 - If `ipp-usb` is installed, it can claim the printer's USB interface. Try `sudo systemctl stop ipp-usb`.
 
+## Cancel does not stop the printer
+
+The queue must use the `canonivec://` backend. Check with `lpstat -v`. If it shows `usb://Canon/...`, switch it:
+
+```bash
+sudo lpadmin -p <queue> -v "$(lpinfo -v | awk '/canonivec:/{print $2; exit}')"
+```
+
+(`sudo scripts/install-local.sh` does this automatically.)
+
 ## Jobs stay "processing" or the queue shows "Paused"
 
 - CUPS stops a queue after a failed job when its error policy is `stop-printer`. Re-enable it with `cupsenable <queue>`, or use the notification's **Resume** button.
-- The printer may be waiting for you: load paper, close covers, then press its Start/OK (Black/Color) button.
+- The printer may be waiting for you: load paper, close covers, then press its Black or Color button. It does not continue by itself.
 - To see what happened: `sudo cupsctl --debug-logging`, print again, then `sudo tail -100 /var/log/cups/error_log`.
 
 ## Margins, borderless, photo paper
@@ -35,7 +45,7 @@ Chrome's own print preview only shows paper size, colour, 2-sided, copies and la
 ## No paper-out notification
 
 1. `canonctl doctor` should report "printer notifications running". If not, start `canon-ivec-notify &` or log out and back in.
-2. Alerts work for USB queues using this driver. Network (driverless IPP) queues get them from the printer itself through CUPS.
+2. Alerts work for USB queues using the `canonivec://` backend (see above). Network (driverless IPP) queues get them from the printer itself through CUPS.
 3. Reproduce the problem, then run `sudo canonctl report` and attach the output to an issue. It shows the raw status messages the printer sent.
 
 ## Scanning

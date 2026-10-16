@@ -6,7 +6,7 @@ pkgdesc="Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets using the IVEC p
 arch=('x86_64' 'aarch64' 'armv7h' 'i686')
 url="https://github.com/noble6/canon-universal-driver"
 license=('GPL-3.0-or-later')
-depends=('cups' 'cups-filters' 'ghostscript' 'python')
+depends=('cups' 'cups-filters' 'ghostscript' 'python' 'libusb')
 optdepends=('libnotify: paper-out and error notifications'
             'system-config-printer: extra features in KDE printer settings'
             'sane: USB scanning via the pixma backend'

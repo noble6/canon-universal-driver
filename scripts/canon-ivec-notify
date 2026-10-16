@@ -48,7 +48,7 @@ ATTENTION = {
     'offline': 'Printer offline',
 }
 HINT = {
-    'media-empty': 'Load paper, then press the printer\'s Black/Color (Start/OK) button. '
+    'media-empty': 'Load paper, then press the printer\'s Black or Color button. '
                    'Printing continues where it stopped.',
     'media-needed': 'Load paper, then press the printer\'s Black/Color (Start/OK) button.',
     'media-jam': 'Remove the jammed paper, then press the printer\'s Stop/OK button.',
@@ -101,14 +101,16 @@ class Popup:
         self.key = None
         self.nid = None
 
-    def show(self, key, title, body):
+    def show(self, key, title, body, paused):
         if key == self.key and self.proc and self.proc.poll() is None:
             return
         self.close()
         self.key = key
+        # The printer continues by itself once the user fixes it and presses
+        # its button; only a queue CUPS paused needs resuming from here.
+        actions = ['--action=resume=Resume'] if paused else ['--action=cancel=Cancel printing']
         cmd = ['notify-send', '-a', 'Canon Printer', '-u', 'critical', '-i', 'printer-error', '-p',
-               '--action=resume=Resume', '--action=cancel=Cancel job', '--action=queue=Open queue',
-               f'{title}: {self.queue}', body]
+               *actions, '--action=queue=Open queue', f'{title}: {self.queue}', body]
         try:
             self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
         except OSError:
@@ -124,7 +126,9 @@ class Popup:
             if subprocess.run(['cupsenable', self.queue], capture_output=True).returncode != 0:
                 subprocess.run(['pkexec', 'cupsenable', self.queue])
         elif action == 'cancel':
+            # the canonivec backend resets the printer when its job is cancelled
             subprocess.run(['cancel', '-a', self.queue])
+            self.key = None
         elif action == 'queue':
             tool = shutil.which('plasma-print-queue')
             subprocess.Popen([tool, self.queue] if tool else ['xdg-open', f'http://localhost:631/printers/{self.queue}'])
@@ -162,7 +166,7 @@ def main():
                     msg = st.get('printer-state-message', '').strip()
                     hint = HINT.get(main_reason, '')
                     body = msg if 'press' in msg.lower() or not hint else (msg + '\n' + hint).strip()
-                    p.show(','.join(found) + msg, ATTENTION[main_reason], body)
+                    p.show(','.join(found) + msg, ATTENTION[main_reason], body, main_reason == 'paused')
                 else:
                     p.close()
             time.sleep(POLL)

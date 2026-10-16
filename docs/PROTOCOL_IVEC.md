@@ -100,7 +100,7 @@ Canon's own Linux filter writes `encoding="job_descriptionutf-8"` in the mainten
 
 ## Status
 
-The printer reports status as an IVEC document on the USB bulk-IN endpoint (the CUPS back channel). The host can request it with
+The printer answers **every** read of the USB bulk-IN endpoint with a complete `GetStatusResponse` document. It does not push status on its own; read about once a second. It can also be asked explicitly with
 
 ```xml
 <?xml version="1.0" encoding="utf-8" ?><cmd xmlns:ivec="http://www.canon.com/ns/cmd/2008/07/common/"><ivec:contents><ivec:operation>GetStatus</ivec:operation><ivec:param_set servicetype="print"></ivec:param_set></ivec:contents></cmd>
@@ -114,9 +114,25 @@ and the reply is a `GetStatusResponse` with
 | `ivec:status_detail` | `MediaEmpty`, `MediaJam`, `DoorOpen`, `MarkerSupplyAttention`, `DeviceBusy`, `AttentionRequired` |
 | `ivec:current_support_code` | Canon support code shown in manuals, e.g. `1000` (paper out), `1300` (jam) |
 
-There is no host-side "resume" operation. After loading paper or clearing a jam, the user presses the printer's Start/OK (Black/Color) button, and the job continues where it stopped. `CancelJob` exists for aborting.
+Observed on a G3010 while out of paper: `idle` -> `processing` -> `stopped` / `MediaEmpty` / `1000`. The USB printer-class port status also sets its paper-empty bit (`0x20`).
 
-`rastertocanonivec` watches the back channel and the IEEE-1284 device ID during USB jobs and maps these to CUPS `printer-state-reasons` (`media-empty-error`, `media-jam-error`, `door-open-error`, `other-error`). `canon-ivec-notify` turns them into desktop notifications.
+There is no host-side "resume" operation. After paper is loaded, the job does **not** continue by itself; the user presses the printer's Black or Color button and it goes back to `processing`.
+
+### Cancelling a job on the printer
+
+Stopping the data stream is not enough, because the printer keeps the job and waits for paper. What works (verified on a G3010):
+
+1. USB printer-class `SOFT_RESET` (control request `0x21`, `bRequest` 2, `wIndex` = interface). This drops queued data, but on its own leaves the printer in `stopped` / `MediaEmpty`.
+2. `CancelJob` with the job's service type and ID:
+   ```xml
+   <?xml version="1.0" encoding="utf-8" ?><cmd xmlns:ivec="http://www.canon.com/ns/cmd/2008/07/common/"><ivec:contents><ivec:operation>CancelJob</ivec:operation><ivec:param_set servicetype="print"><ivec:jobID>00000002</ivec:jobID></ivec:param_set></ivec:contents></cmd>
+   ```
+   The printer goes `busying` / `DeviceBusy` / `D103`, then `idle`, and the error lamp clears.
+3. Another `SOFT_RESET`. After `CancelJob` the printer silently discards all input, including later jobs, until it is reset.
+
+The stock CUPS `usb` backend cannot do this. It ignores SIGTERM while a driver feeds it, its reset waits for a write that never completes while the printer is stalled, and it never sends `CancelJob`. That is why this project ships its own `canonivec` backend.
+
+The `canonivec` backend reads this status during every job and maps it to CUPS `printer-state-reasons` (`media-empty-error`, `media-jam-error`, `door-open-error`, `other-error`). `rastertocanonivec` does the same through the back channel when a queue uses the stock `usb` backend. `canon-ivec-notify` turns the reasons into desktop notifications.
 
 ## Capabilities
 

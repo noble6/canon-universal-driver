@@ -2,6 +2,9 @@
 #ifndef CANON_IVEC_STATUS_H
 #define CANON_IVEC_STATUS_H
 
+#include <stddef.h>
+#include <time.h>
+
 /*
  * Printer status monitoring for USB queues.
  *
@@ -31,6 +34,16 @@ int ivec_parse_status(const char *buf, ivec_status_t *out);
 /* Map a status to a CUPS printer-state-reason ("" when none applies) and a
  * message.  Returns 1 when the printer needs the user's attention. */
 int ivec_status_reason(const ivec_status_t *st, const char **reason, char *msg, int msglen);
+
+/* Feed raw bytes received from the printer; complete status documents are
+ * parsed and changes reported to CUPS.  Thread-safe. */
+void ivec_status_feed(const char *data, size_t len);
+/* Latest status and when it arrived (0 if none yet). */
+time_t ivec_status_latest(ivec_status_t *out);
+/* Remove any printer-state-reason this process set. */
+void ivec_status_clear(void);
+/* GetStatus request document */
+extern const char IVEC_GET_STATUS[];
 
 /* Start/stop the background monitor (no-op when there is no back channel). */
 void ivec_monitor_start(void);

@@ -12,7 +12,7 @@ BINDIR      ?= $(PREFIX)/bin
 DOCDIR      ?= $(PREFIX)/share/doc/canon-ivec-driver
 SYSCONFDIR  ?= /etc
 
-FILTERS = out/rastertocanonivec out/cmdtocanonivec
+FILTERS = out/rastertocanonivec out/cmdtocanonivec out/canonivec
 IVEC    = src/ivec/ivec.c src/ivec/ivec.h
 STATUS  = src/ivec/status.c src/ivec/status.h
 
@@ -21,6 +21,10 @@ all: $(FILTERS) out/ppd/.stamp
 out/rastertocanonivec: src/ivec/rastertocanonivec.c $(IVEC) $(STATUS)
 	@mkdir -p out
 	$(CC) $(CFLAGS) -pthread -o $@ src/ivec/rastertocanonivec.c src/ivec/ivec.c src/ivec/status.c $(LDFLAGS) $(LDLIBS)
+
+out/canonivec: src/backend/canonivec.c $(STATUS)
+	@mkdir -p out
+	$(CC) $(CFLAGS) -pthread -Isrc/ivec $(shell pkg-config --cflags libusb-1.0) -o $@ src/backend/canonivec.c src/ivec/status.c $(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs libusb-1.0)
 
 out/cmdtocanonivec: src/ivec/cmdtocanonivec.c $(IVEC)
 	@mkdir -p out
@@ -43,6 +47,8 @@ check: all out/test_status
 install: all
 	install -Dm755 out/rastertocanonivec "$(DESTDIR)$(SERVERBIN)/filter/rastertocanonivec"
 	install -Dm755 out/cmdtocanonivec "$(DESTDIR)$(SERVERBIN)/filter/cmdtocanonivec"
+	# 0700: cupsd runs root-only backends as root, which USB access needs
+	install -Dm700 out/canonivec "$(DESTDIR)$(SERVERBIN)/backend/canonivec"
 	install -d "$(DESTDIR)$(PPDDIR)"
 	install -m644 out/ppd/*.ppd "$(DESTDIR)$(PPDDIR)/"
 	install -Dm755 scripts/canonctl "$(DESTDIR)$(BINDIR)/canonctl"
@@ -53,6 +59,7 @@ install: all
 
 uninstall:
 	rm -f "$(DESTDIR)$(SERVERBIN)/filter/rastertocanonivec" "$(DESTDIR)$(SERVERBIN)/filter/cmdtocanonivec"
+	rm -f "$(DESTDIR)$(SERVERBIN)/backend/canonivec"
 	rm -rf "$(DESTDIR)$(PPDDIR)" "$(DESTDIR)$(DOCDIR)"
 	rm -f "$(DESTDIR)$(BINDIR)/canonctl" "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
 	rm -f "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"

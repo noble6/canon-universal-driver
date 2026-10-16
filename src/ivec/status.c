@@ -11,7 +11,7 @@
 #include <time.h>
 #include <unistd.h>
 
-static const char GET_STATUS[] =
+const char IVEC_GET_STATUS[] =
     "<?xml version=\"1.0\" encoding=\"utf-8\" ?><cmd xmlns:ivec=\"http://www.canon.com/ns/cmd/2008/07/common/\">"
     "<ivec:contents><ivec:operation>GetStatus</ivec:operation><ivec:param_set servicetype=\"print\">"
     "</ivec:param_set></ivec:contents></cmd>";
@@ -59,7 +59,7 @@ int ivec_status_reason(const ivec_status_t *st, const char **reason, char *msg, 
     *reason = "";
     if (!strcmp(st->detail, "MediaEmpty")) {
         *reason = "media-empty-error";
-        snprintf(msg, msglen, "Out of paper%s. Load paper, then press the printer's Black/Color (Start/OK) button.", code);
+        snprintf(msg, msglen, "Out of paper%s. Load paper, then press the printer's Black or Color (OK) button to continue.", code);
     } else if (!strcmp(st->detail, "MediaJam")) {
         *reason = "media-jam-error";
         snprintf(msg, msglen, "Paper jam%s. Remove the paper, then press the printer's Stop/OK button.", code);
@@ -105,39 +105,64 @@ static void log_raw(const char *what, const char *data, size_t n) {
     fprintf(stderr, "DEBUG: ivec-%s (%zu bytes): %s\n", what, n, clean);
 }
 
+void ivec_status_feed(const char *data, size_t len) {
+    static char acc[65536];
+    static size_t accn;
+    static pthread_mutex_t feed_lock = PTHREAD_MUTEX_INITIALIZER;
+
+    pthread_mutex_lock(&feed_lock);
+    mon.any_data = 1;
+    if (accn + len >= sizeof(acc)) accn = 0;
+    memcpy(acc + accn, data, len);
+    accn += len;
+    acc[accn] = 0;
+    ivec_status_t st;
+    if (strstr(acc, "</cmd>") && ivec_parse_status(acc, &st)) {
+        /* printers answer every read, so only log changes */
+        if (strcmp(st.status, mon.last.status) || strcmp(st.detail, mon.last.detail) ||
+            strcmp(st.support_code, mon.last.support_code))
+            fprintf(stderr, "DEBUG: ivec-status %s/%s/%s\n", st.status, st.detail[0] ? st.detail : "-",
+                    st.support_code[0] ? st.support_code : "-");
+        pthread_mutex_lock(&mon.lock);
+        mon.last = st;
+        mon.last_status = time(NULL);
+        pthread_mutex_unlock(&mon.lock);
+        report(&st);
+        /* keep only what follows the last complete document */
+        char *tail = acc, *p;
+        while ((p = strstr(tail, "</cmd>"))) tail = p + 6;
+        accn = strlen(tail);
+        memmove(acc, tail, accn + 1);
+    }
+    pthread_mutex_unlock(&feed_lock);
+}
+
+time_t ivec_status_latest(ivec_status_t *out) {
+    pthread_mutex_lock(&mon.lock);
+    *out = mon.last;
+    time_t t = mon.last_status;
+    pthread_mutex_unlock(&mon.lock);
+    return t;
+}
+
+void ivec_status_clear(void) {
+    pthread_mutex_lock(&mon.lock);
+    if (mon.reason[0]) fprintf(stderr, "STATE: -%s\n", mon.reason);
+    mon.reason[0] = 0;
+    pthread_mutex_unlock(&mon.lock);
+}
+
 static void *monitor(void *arg) {
     (void)arg;
-    static char acc[65536];
-    size_t accn = 0;
     char buf[4096], devid[1024] = "", cur[1024];
     int tick = 0;
 
     while (!mon.stop) {
         ssize_t n = cupsBackChannelRead(buf, sizeof(buf) - 1, 1.0);
-        if (n > 0) {
-            mon.any_data = 1;
-            log_raw("backchannel", buf, (size_t)n);
-            if (accn + (size_t)n >= sizeof(acc)) accn = 0;
-            memcpy(acc + accn, buf, (size_t)n);
-            accn += (size_t)n;
-            acc[accn] = 0;
-            ivec_status_t st;
-            char *end = strstr(acc, "</cmd>") ? acc : NULL;
-            if (end && ivec_parse_status(acc, &st)) {
-                pthread_mutex_lock(&mon.lock);
-                mon.last = st;
-                mon.last_status = time(NULL);
-                pthread_mutex_unlock(&mon.lock);
-                report(&st);
-                /* keep only what follows the last complete document */
-                char *tail = acc, *p;
-                while ((p = strstr(tail, "</cmd>"))) tail = p + 6;
-                accn = strlen(tail);
-                memmove(acc, tail, accn + 1);
-            }
-        } else if (n < 0) {
+        if (n > 0)
+            ivec_status_feed(buf, (size_t)n);
+        else if (n < 0)
             sleep(1);   /* no back channel (unidirectional queue) */
-        }
 
         /* the device ID answers even while the data pipe is stalled */
         if (++tick % 3 == 0) {
@@ -182,7 +207,7 @@ void ivec_monitor_finish(int timeout) {
         if (!mon.any_data && now - start >= 6) break;
         if (now - start >= timeout) break;
         if (now - asked >= 3) {
-            fwrite(GET_STATUS, 1, sizeof(GET_STATUS) - 1, stdout);
+            fputs(IVEC_GET_STATUS, stdout);
             fflush(stdout);
             asked = now;
         }
@@ -192,8 +217,5 @@ void ivec_monitor_finish(int timeout) {
     mon.stop = 1;
     pthread_join(mon.thread, NULL);
     mon.running = 0;
-    pthread_mutex_lock(&mon.lock);
-    if (mon.reason[0]) fprintf(stderr, "STATE: -%s\n", mon.reason);
-    mon.reason[0] = 0;
-    pthread_mutex_unlock(&mon.lock);
+    ivec_status_clear();
 }

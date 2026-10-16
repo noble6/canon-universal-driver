@@ -60,21 +60,28 @@ ppd_for_mdl() {
 }
 
 cmd_detect() {
-    local found=0 uri id mdl ppd
+    local found=0 uri id mdl ppd all
+    all=$(devices)
     info "Canon printers seen by CUPS:"
     while IFS=$'\t' read -r uri id; do
         [ -n "$uri" ] || continue
+        # the stock usb:// entry duplicates our canonivec:// one
+        if [[ $uri == usb:* ]]; then
+            local sn=${uri##*serial=}
+            sn=${sn%%&*}
+            grep -q "^canonivec:[^[:space:]]*serial=$sn" <<<"$all" && continue
+        fi
         found=1
         mdl=$(mdl_of "$id")
         ppd=$(ppd_for_mdl "$mdl")
         printf '  %s\n    model: %s\n' "$uri" "${mdl:-unknown}"
         case $uri in
-            usb:*) if [ -n "$ppd" ]; then echo "    driver: IVEC open driver ($(basename "$ppd"))"
+            usb:*|canonivec:*) if [ -n "$ppd" ]; then echo "    driver: IVEC open driver ($(basename "$ppd"))"
                    elif [[ $id == *IVEC* ]]; then echo "    driver: IVEC open driver (generic profile)"
                    else echo "    driver: not an IVEC printer - try gutenprint"; fi ;;
             *)     echo "    driver: driverless IPP (built into the printer)" ;;
         esac
-    done < <(devices)
+    done <<<"$all"
     [ $found = 1 ] || echo "  none - is the printer on and connected? (USB: check 'lsusb | grep 04a9')"
 }
 
@@ -95,8 +102,9 @@ cmd_setup() {
     done
     local line
     if [ -z "$uri" ]; then
-        # prefer USB, then IPP over network
-        line=$(devices | awk -F'\t' '$1 ~ /^usb:/' | head -1)
+        # prefer our USB backend, then the stock one, then IPP over the network
+        line=$(devices | awk -F'\t' '$1 ~ /^canonivec:/' | head -1)
+        [ -n "$line" ] || line=$(devices | awk -F'\t' '$1 ~ /^usb:/' | head -1)
         [ -n "$line" ] || line=$(devices | awk -F'\t' '$1 ~ /^(ipps?|dnssd):/' | head -1)
         [ -n "$line" ] || die "no Canon printer found; connect it or pass a URI"
         uri=${line%%$'\t'*}
@@ -108,7 +116,7 @@ cmd_setup() {
     [ -n "$name" ] || name=$(queue_name "${mdl:-Printer}")
 
     case $uri in
-        usb:*)
+        usb:*|canonivec:*)
             ppd=$(ppd_for_mdl "$mdl")
             if [ -z "$ppd" ]; then
                 [[ $id == *IVEC* ]] || die "$mdl does not speak IVEC; this driver cannot drive it"
@@ -195,7 +203,7 @@ cmd_report() {
     [ -r "$log" ] || die "cannot read $log; run: sudo canonctl report"
     cupsctl 2>/dev/null | grep -q '_debug_logging=1' ||
         echo "note: debug logging is off, enable it with: sudo cupsctl --debug-logging"
-    grep -a -E 'ivec-(backchannel|device-id)|STATE: [+-](media|door|other|marker)|WARNING: (Out of|Paper|A cover|The printer)' "$log" |
+    grep -a -E 'ivec-(status|device-id)|CancelJob|soft reset|STATE: [+-](media|door|other|marker|offline)|WARNING: (Out of|Paper|A cover|The printer)' "$log" |
         tail -n "${1:-60}"
 }
 
@@ -209,6 +217,9 @@ cmd_doctor() {
     check "CUPS is running" "lpstat -r | grep -q 'is running'" "sudo systemctl enable --now cups"
     check "rastertocanonivec installed" "test -x $SERVERBIN/filter/rastertocanonivec" "sudo make install"
     check "cmdtocanonivec installed" "test -x $SERVERBIN/filter/cmdtocanonivec" "sudo make install"
+    check "canonivec USB backend installed" "test -e $SERVERBIN/backend/canonivec" "sudo make install"
+    warn "USB queues use the canonivec backend (status, cancel)" "! lpstat -v 2>/dev/null | grep -q 'usb://Canon'" \
+        "sudo lpadmin -p <queue> -v \$(lpinfo -v | awk '/canonivec:/{print \$2; exit}')"
     check "model PPDs installed" "ls $PPDDIR/*.ppd" "sudo make install"
     check "Ghostscript present" "command -v gs" "install ghostscript"
     warn "old placeholder 'canonfilter' removed" "! test -e $SERVERBIN/filter/canonfilter" \

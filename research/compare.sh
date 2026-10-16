@@ -12,7 +12,7 @@ rm -f "$W/ours/bin/filter/canonfilter"
 B=$(readlink -f "$W/build")
 ln -sf "$B/rastertocanonivec" "$W/ours/bin/filter/rastertocanonivec"
 ln -sf "$B/cmdtocanonivec" "$W/ours/bin/filter/cmdtocanonivec"
-printf 'ServerBin %s\nDataDir /usr/share/cups\n' "$W/ours/bin" > "$W/ours/cups-files.conf"
+printf "ServerBin %s\nDataDir /usr/share/cups\n" "$(readlink -f "$W/ours")/bin" > "$W/ours/cups-files.conf"
 ppd=$(grep -l "^\*% model-id: $id\$" "$W"/ppds/*.ppd 2>/dev/null | head -1)
 [ -n "$ppd" ] || { echo "no PPD for $id"; exit 2; }
 "$HERE/refprint.sh" "$id" "$in" "$W/cmp/$id.ref" "$@"
