@@ -11,6 +11,7 @@ PPDDIR      ?= $(PREFIX)/share/ppd/canon-ivec
 BINDIR      ?= $(PREFIX)/bin
 DOCDIR      ?= $(PREFIX)/share/doc/canon-ivec-driver
 SYSCONFDIR  ?= /etc
+UDEVDIR     ?= $(shell pkg-config --variable=udevdir udev 2>/dev/null || echo $(PREFIX)/lib/udev)
 
 FILTERS = out/rastertocanonivec out/cmdtocanonivec out/canonivec
 IVEC    = src/ivec/ivec.c src/ivec/ivec.h
@@ -53,6 +54,7 @@ install: all
 	install -m644 out/ppd/*.ppd "$(DESTDIR)$(PPDDIR)/"
 	install -Dm755 scripts/canonctl "$(DESTDIR)$(BINDIR)/canonctl"
 	install -Dm755 scripts/canon-ivec-notify "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
+	install -Dm644 data/71-canon-ivec.rules "$(DESTDIR)$(UDEVDIR)/rules.d/71-canon-ivec.rules"
 	install -Dm644 data/canon-ivec-notify.desktop "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
 	install -Dm644 README.md "$(DESTDIR)$(DOCDIR)/README.md"
 	install -Dm644 docs/PROTOCOL_IVEC.md "$(DESTDIR)$(DOCDIR)/PROTOCOL_IVEC.md"
@@ -63,6 +65,7 @@ uninstall:
 	rm -rf "$(DESTDIR)$(PPDDIR)" "$(DESTDIR)$(DOCDIR)"
 	rm -f "$(DESTDIR)$(BINDIR)/canonctl" "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
 	rm -f "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
+	rm -f "$(DESTDIR)$(UDEVDIR)/rules.d/71-canon-ivec.rules"
 
 clean:
 	rm -rf out

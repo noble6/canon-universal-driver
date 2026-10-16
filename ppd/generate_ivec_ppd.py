@@ -103,6 +103,28 @@ def ppd_for(m, version):
                f'*Resolution {res}dpi/{res} dpi: "<</HWResolution[{res} {res}]>>setpagedevice"\n'
                '*CloseUI: *Resolution\n\n')
 
+    # Print quality as the standard cupsPrintQuality option, which CUPS maps
+    # from IPP print-quality, so every dialog shows it.  Normal sends nothing
+    # (identical to Canon's driver); High -> best, Draft -> fast_draft.
+    q = m.get('quality') or {}
+    levels = q.get('levels', [])
+    if 'best' in levels or 'fast_draft' in levels:
+        out.append('*OpenUI *cupsPrintQuality/Print Quality: PickOne\n*OrderDependency: 20 AnySetup *cupsPrintQuality\n'
+                   '*DefaultcupsPrintQuality: Normal\n')
+        if 'fast_draft' in levels:
+            r = q.get('draft_res') or res
+            out.append(f'*cupsPrintQuality Draft/Draft: "<</HWResolution[{r} {r}]>>setpagedevice"\n')
+        out.append(f'*cupsPrintQuality Normal/Normal: "<</HWResolution[{res} {res}]>>setpagedevice"\n')
+        if 'best' in levels:
+            out.append(f'*cupsPrintQuality High/High: "<</HWResolution[{res} {res}]>>setpagedevice"\n')
+        out.append('*CloseUI: *cupsPrintQuality\n')
+        if 'best' in levels:
+            out.append('*cnivecQuality High: "best"\n')
+        if 'fast_draft' in levels:
+            out.append('*cnivecQuality Draft: "fast_draft"\n')
+            out.append(f'*cnivecDraftMedia: "{" ".join(q.get("draft_media", []))}"\n')
+        out.append('\n')
+
     sizes = m['sizes']
     default = m['default_size'] if any(s['name'] == m['default_size'] for s in sizes) else sizes[0]['name']
     for kw, title in (('PageSize', 'Page Size'), ('PageRegion', 'Page Region')):

@@ -34,6 +34,7 @@ typedef struct ivec_page_config {
     int borderless;
     int monochrome;
     int duplex;
+    const char *printquality;  /* best, fast_draft, ... or NULL to leave it to the printer */
 } ivec_page_config_t;
 
 void ivec_job_init(ivec_job_t *job, FILE *out, int protocol, int send_datetime,

@@ -52,6 +52,9 @@ typedef struct {
     int mono_only;
     int rotate_back;
     int optimization;
+    int base_res;             /* resolution the printable areas are given in */
+    char quality_high[24], quality_draft[24], draft_media[256];
+    char default_quality[24];
     char default_size[48];
     char default_media[48];
     int default_gray;
@@ -83,6 +86,7 @@ static int load_model(const char *path, model_t *m) {
     if (!f) return -1;
     memset(m, 0, sizeof(*m));
     m->protocol = 2;
+    m->base_res = 600;
 
     char line[1024];
     while (fgets(line, sizeof(line), f)) {
@@ -96,6 +100,9 @@ static int load_model(const char *path, model_t *m) {
                 s->borderless = strstr(opt, ".bl") != NULL;
                 m->nsizes++;
             }
+        } else if (sscanf(line, "*cnivecQuality %47[^:]:", opt) == 1) {
+            if (!strcmp(opt, "High")) snprintf(m->quality_high, sizeof(m->quality_high), "%s", unquote(line));
+            else if (!strcmp(opt, "Draft")) snprintf(m->quality_draft, sizeof(m->quality_draft), "%s", unquote(line));
         } else if (sscanf(line, "*cnivecMediaType %47[^:]:", opt) == 1 && m->nmedia < MAX_MEDIA) {
             media_entry_t *e = &m->media[m->nmedia++];
             snprintf(e->name, sizeof(e->name), "%s", opt);
@@ -107,6 +114,9 @@ static int load_model(const char *path, model_t *m) {
             else if (!strcmp(key, "cnivecColorMode")) m->mono_only = !strcasecmp(val, "monochrome");
             else if (!strcmp(key, "cnivecRotateBack")) m->rotate_back = !strcasecmp(val, "True");
             else if (!strcmp(key, "cnivecOptimization")) m->optimization = !strcasecmp(val, "True");
+            else if (!strcmp(key, "cnivecDraftMedia")) snprintf(m->draft_media, sizeof(m->draft_media), " %s ", val);
+            else if (!strcmp(key, "DefaultResolution")) m->base_res = atoi(line + 20);
+            else if (!strcmp(key, "DefaultcupsPrintQuality")) snprintf(m->default_quality, sizeof(m->default_quality), "%s", line + 26);
             else if (!strcmp(key, "DefaultPageSize")) snprintf(m->default_size, sizeof(m->default_size), "%s", line + 18);
             else if (!strcmp(key, "DefaultMediaType")) snprintf(m->default_media, sizeof(m->default_media), "%s", line + 19);
             else if (!strcmp(key, "DefaultCNGrayscale")) m->default_gray = !strcasecmp(line + 21, "True");
@@ -153,6 +163,16 @@ static int want_gray(const model_t *m, int nopts, cups_option_t *opts) {
     if ((v = cupsGetOption("print-color-mode", nopts, opts))) return !strcasecmp(v, "monochrome");
     if ((v = cupsGetOption("CNGrayscale", nopts, opts))) return !strcasecmp(v, "True");   /* Canon PPD name */
     return m->default_gray;
+}
+
+/* Chosen quality: "High", "Draft" or "Normal" (from cupsPrintQuality, the
+ * IPP print-quality value, or the PPD default). */
+static const char *quality_choice(const model_t *m, int nopts, cups_option_t *opts) {
+    const char *v = cupsGetOption("cupsPrintQuality", nopts, opts);
+    if (v) return v;
+    if ((v = cupsGetOption("print-quality", nopts, opts)))
+        return atoi(v) == 3 ? "Draft" : atoi(v) == 5 ? "High" : "Normal";
+    return m->default_quality[0] ? m->default_quality : "Normal";
 }
 
 /* ---- PWG page generation ---- */
@@ -242,7 +262,7 @@ static cups_raster_t *open_pwg(membuf_t *b, const cups_page_header2_t *h, long w
 /* Render one page into a colour and/or a gray PWG stream.  *colorful is set
  * when any printed pixel is not neutral. */
 static int render_page(cups_raster_t *in, const cups_page_header2_t *h, const size_entry_t *size,
-                       int rotate, membuf_t *color, membuf_t *gray, int *colorful) {
+                       int base_res, int out_res, int rotate, membuf_t *color, membuf_t *gray, int *colorful) {
     if (h->cupsBitsPerColor != 8 || h->cupsColorOrder != CUPS_ORDER_CHUNKED ||
         (h->cupsNumColors != 3 && h->cupsNumColors != 1)) {
         fprintf(stderr, "ERROR: Unsupported raster format (%u bpc, %u colors)\n",
@@ -251,8 +271,12 @@ static int render_page(cups_raster_t *in, const cups_page_header2_t *h, const si
     }
 
     long in_w = h->cupsWidth, in_h = h->cupsHeight;
-    long out_w = size->print_w, out_h = size->print_h;
+    /* printable areas are listed at the model's base resolution */
+    long out_w = (long)size->print_w * out_res / base_res, out_h = (long)size->print_h * out_res / base_res;
     long dst_w, dst_h, ofs_w, ofs_h;
+    cups_page_header2_t hh = *h;
+    hh.HWResolution[0] = hh.HWResolution[1] = out_res;
+    h = &hh;
 
     /* fit inside the printable area, keep aspect, centre */
     if ((double)out_w / in_w < (double)out_h / in_h) {
@@ -369,7 +393,7 @@ int main(int argc, char *argv[]) {
     int hold = m->optimization && !gray_req;
 
     membuf_t *color = NULL, *gray = NULL;   /* one per page */
-    int npages = 0, cap = 0, colorful = 0, job_gray = 1, rc = 0, started = 0;
+    int npages = 0, cap = 0, colorful = 0, job_gray = 1, rc = 0, started = 0, draft = 0;
     ivec_page_config_t cfg = { 0 };
     cups_page_header2_t h;
 
@@ -387,6 +411,17 @@ int main(int argc, char *argv[]) {
             cfg.borderless = size->borderless;
             cfg.monochrome = gray_req;
             cfg.duplex = h.Duplex != 0;
+            const char *qc = quality_choice(m, nopts, opts);
+            if (!strcasecmp(qc, "High") && m->quality_high[0]) {
+                cfg.printquality = m->quality_high;
+            } else if (!strcasecmp(qc, "Draft") && m->quality_draft[0]) {
+                char want[72];
+                snprintf(want, sizeof(want), " %s ", cfg.papertype);
+                if (strstr(m->draft_media, want)) {
+                    cfg.printquality = m->quality_draft;
+                    draft = 1;
+                }
+            }
         }
         if (npages == cap) {
             cap = cap ? cap * 2 : 8;
@@ -404,7 +439,10 @@ int main(int argc, char *argv[]) {
         int want_color = !(m->optimization && gray_req);
         int want_gray = m->optimization && (gray_req || (hold && job_gray));
         colorful = 0;
-        if (render_page(in, &h, size, rotate, want_color ? c : NULL, want_gray ? g : NULL,
+        /* draft pages go at the rendered (lower) resolution, everything else
+         * at the base resolution even if the dialog asked for draft */
+        int out_res = draft ? (int)h.HWResolution[0] : m->base_res;
+        if (render_page(in, &h, size, m->base_res, out_res, rotate, want_color ? c : NULL, want_gray ? g : NULL,
                         hold ? &colorful : NULL) != 0) {
             fprintf(stderr, "ERROR: Failed to convert page %d\n", npages);
             rc = 1;
@@ -444,9 +482,10 @@ int main(int argc, char *argv[]) {
         membuf_t *p = (m->optimization && gray_req) ? &gray[npages - 1] : &color[npages - 1];
         if (ivec_send_page(&job, 0, p->data, p->len)) rc = 1;
     }
-    fprintf(stderr, "DEBUG: IVEC v%d %s %s%s %s%s, %d page(s)\n", m->protocol, cfg.papersize ? cfg.papersize : "-",
-            cfg.papertype ? cfg.papertype : "-", cfg.borderless ? " borderless" : "",
-            cfg.monochrome ? "mono" : "color", cfg.duplex ? " duplex" : "", npages);
+    fprintf(stderr, "DEBUG: IVEC v%d %s %s%s %s%s quality=%s, %d page(s)\n", m->protocol,
+            cfg.papersize ? cfg.papersize : "-", cfg.papertype ? cfg.papertype : "-",
+            cfg.borderless ? " borderless" : "", cfg.monochrome ? "mono" : "color", cfg.duplex ? " duplex" : "",
+            cfg.printquality ? cfg.printquality : "printer-default", npages);
     /* always close a started job so the printer does not wait forever */
     if (started && ivec_end_job(&job)) rc = 1;
     /* stay around while the printer works through the job, so paper-out and

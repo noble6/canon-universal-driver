@@ -1,0 +1,6 @@
+# Canon IVEC open driver.
+# system-config-printer's udev helper (70-printers.rules) auto-creates a
+# usb:// queue for every USB printer it sees.  It does not recognise the
+# canonivec:// queues set up by `canonctl setup`, so it would add a duplicate
+# printer without status or working cancel.  Leave Canon printers to canonctl.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="04a9", ENV{ID_USB_INTERFACES}=="*:0701??:*", ENV{SYSTEMD_WANTS}=""

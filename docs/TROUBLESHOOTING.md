@@ -34,6 +34,10 @@ sudo lpadmin -p <queue> -v "$(lpinfo -v | awk '/canonivec:/{print $2; exit}')"
 - Borderless sizes are listed as "(borderless)" (`4x6.bl`, `A4.bl`, ...). Canon only allows borderless printing on photo media types, so choose a photo paper type too.
 - An unlisted printer using the *IVEC Generic* profile gets conservative margins. Please open a "new model" issue.
 
+## The printer shows up twice
+
+`system-config-printer` auto-creates a `usb://` queue for every USB printer it sees, next to the `canonivec://` queue from `canonctl setup`. `sudo scripts/install-local.sh` removes the duplicate and installs `71-canon-ivec.rules`, which stops it coming back. To remove one by hand: `sudo lpadmin -x <duplicate-queue>`.
+
 ## KDE says "A printer support package ... system-config-printer"
 
 Install it: `sudo pacman -S system-config-printer`. KDE's printer settings use it for extra features.

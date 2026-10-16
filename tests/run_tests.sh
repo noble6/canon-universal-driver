@@ -85,6 +85,18 @@ run "$(basename "$opt" -ivec.ppd)" "$opt" 2 -o ColorModel=Gray
 run "$(basename "$opt" -ivec.ppd)" "$opt" 2
 mapfile -t sample < <(printf '%s\n' "$P"/*.ppd | shuf -n 10)
 for f in "${sample[@]}"; do run "$(basename "$f" -ivec.ppd)" "$f" 2; done
+qrun() {
+    local q=$1 expect=$2
+    cupsfilter -c "$T/cups-files.conf" -p "$g3010" -m printer/foo -o cupsPrintQuality="$q" -e "$T/t.pdf" \
+        > "$T/q.bin" 2>/dev/null
+    if validate "$T/q.bin" 2 && grep -q -a -- "$expect" "$T/q.bin"; then echo "PASS G3010 quality $q"
+    else echo "FAIL G3010 quality $q"; fail=1; fi
+}
+qrun High "<ivec:printquality>best</ivec:printquality>"
+qrun Draft "<ivec:printquality>fast_draft</ivec:printquality>"
+if cupsfilter -c "$T/cups-files.conf" -p "$g3010" -m printer/foo -e "$T/t.pdf" 2>/dev/null | grep -q -a printquality; then
+    echo "FAIL G3010 quality Normal sends printquality"; fail=1
+else echo "PASS G3010 quality Normal leaves it to the printer"; fi
 cmdrun G3010 "$g3010" "Clean all" "<ivec:operation>Cleaning</ivec:operation>"
 cmdrun G3010 "$g3010" "PrintSelfTestPage" "nozzle_check"
 cmdrun G3010 "$g3010" "com.canon.Cleaning deep all" "<ivec:type>deep</ivec:type>"

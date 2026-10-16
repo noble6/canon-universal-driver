@@ -32,6 +32,7 @@ int main(int argc, char **argv) {
         unsigned char buf[8192]; int got = 0;
         r = libusb_bulk_transfer(h, 0x82, buf, sizeof buf, &got, 1000);
         printf("read %d: %s got=%d", i, libusb_error_name(r), got);
+        if (got && getenv("FULL")) { buf[got] = 0; puts((char *)buf); }
         if (got) { buf[got] = 0; char *o = strstr((char *)buf, "<ivec:operation>"), *s = strstr((char *)buf, "<ivec:status>"), *d = strstr((char *)buf, "<ivec:status_detail"), *j = strstr((char *)buf, "<ivec:jobID>"); printf(" %.45s | %.30s | %.40s | %.30s", o ? o + 16 : "-", s ? s + 13 : "-", d ? d : "-", j ? j : "-"); }
         puts("");
     }

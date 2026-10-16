@@ -87,6 +87,17 @@ def parse_maint(caps):
     return out, '<ivec:datetime/>' in sec, 'host_environment' in sec
 
 
+def parse_quality(caps):
+    """Print quality levels, draft resolution and the media that allow draft."""
+    sec = caps.split('CNIJ-IVEC-CAPABILITY-MAINTENANCE')[0]
+    m = re.search(r'<ivec:printquality type="simple">([^<]*)<', sec)
+    levels = m.group(1).split(',') if m else []
+    r = re.search(r'<ivec:resolution printquality="fast_draft"[^>]*>(\d+),', sec)
+    draft_media = [t for t, q in re.findall(r'<ivec:available_printquality papertype="([^"]+)">([^<]*)<', sec)
+                   if 'fast_draft' in q.split(',')]
+    return {'levels': levels, 'draft_res': int(r.group(1)) if r else None, 'draft_media': draft_media}
+
+
 def parse_ref(path):
     d = open(path, 'rb').read()
     return {
@@ -113,6 +124,7 @@ def generic(models):
         'protocol': 2, 'datetime': True, 'mono_only': False, 'default_gray': False, 'color': True, 'duplex': False, 'optimization': False,
         'resolution': 600, 'default_size': 'A4', 'default_media': 'plain',
         'maint_style': 'ivec', 'maint_datetime': True, 'maint_hostenv': True,
+        'quality': {'levels': ['auto', 'best', 'normal'], 'draft_res': None, 'draft_media': []},
         'maint': {'Cleaning': {'regular': ['all']}, 'TestPrint': {'nozzle_check': []}},
         'sizes': [sizes[k] for k in ('A4', 'Letter', 'A5', 'legal', '4x6', '5x7in') if k in sizes],
         'media': [{'name': 'plain', 'text': 'Plain Paper', 'ivec': 'stationery'},
@@ -171,6 +183,7 @@ def main(out_path):
             'resolution': info['resolution'],
             'default_size': info.get('DefaultPageSize', 'A4'),
             'default_media': info.get('DefaultMediaType', 'plain'),
+            'quality': parse_quality(caps),
             'maint_style': 'bjl' if 'cmdtocanonij2' in ppd_text else 'ivec',
             'maint_datetime': maint_dt,
             'maint_hostenv': maint_host,

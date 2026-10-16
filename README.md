@@ -58,6 +58,7 @@ Print from any application. Useful options:
 |---|---|---|
 | Paper size | every print dialog | A4, Letter, Legal, A5, B5, 4x6, 5x7, 8x10, envelopes, ... and "(borderless)" variants |
 | Color mode | every print dialog | Color, Grayscale |
+| Print quality | every print dialog ("Quality") | Draft, Normal, High (on models that support it) |
 | Media type | LibreOffice: Properties. Chrome: "Print using system dialog" | Plain paper, glossy photo papers, matte, envelopes, ... |
 | 2-sided | every print dialog, on duplex models | Long edge, Short edge |
 

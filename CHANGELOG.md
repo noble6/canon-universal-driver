@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0
+
+- Print quality: standard `cupsPrintQuality` option (Draft / Normal / High), mapped from IPP `print-quality`, so every dialog shows it. Normal keeps the output identical to Canon's driver; High sends `printquality=best`; Draft sends `fast_draft` at the model's draft resolution (300 dpi on G3010 and similar) on paper types that allow it.
+- Duplicate printers: `71-canon-ivec.rules` stops system-config-printer from adding a second `usb://` queue for Canon printers; `install-local.sh` removes existing duplicates.
+
 ## 1.1.0
 
 - `canonivec` USB backend: reads the printer's status during every job, and cancelling a job now aborts it on the printer (soft reset, `CancelJob`, reset), and a job stopped with the printer's Stop button is reported as cancelled. The stock CUPS USB backend leaves Canon printers waiting until their Stop button is pressed.

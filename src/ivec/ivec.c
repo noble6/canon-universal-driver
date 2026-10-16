@@ -105,6 +105,8 @@ int ivec_set_configuration(ivec_job_t *job, const ivec_page_config_t *cfg) {
                "<ivec:duplexprint>%s</ivec:duplexprint>",
             cfg->papersize, cfg->papertype, cfg->borderless ? "ON" : "OFF",
             cfg->monochrome ? "monochrome" : "color", cfg->duplex ? "ON" : "OFF");
+    if (cfg->printquality)
+        fprintf(f, "<ivec:printquality>%s</ivec:printquality>", cfg->printquality);
     return close_cmd(f);
 }
 

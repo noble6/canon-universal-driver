@@ -41,6 +41,13 @@ else
     echo "==> Creating the print queue"
     canonctl setup --name "$QUEUE"
 fi
+# drop usb:// duplicates of canonivec:// queues (system-config-printer's
+# udev helper creates them; 71-canon-ivec.rules stops that from now on)
+udevadm control --reload-rules 2>/dev/null || true
+for sn in $(lpstat -v 2>/dev/null | sed -n 's/.* canonivec:.*serial=\([^&]*\).*/\1/p'); do
+    lpstat -v 2>/dev/null | awk -v s="serial=$sn" '$4 ~ /^usb:\/\/Canon\// && index($4, s) {sub(":", "", $3); print $3}' |
+        while read -r dup; do lpadmin -x "$dup" && echo "==> Removed duplicate queue $dup"; done
+done
 lpadmin -d "$QUEUE"
 cupsenable "$QUEUE"; cupsaccept "$QUEUE"
 lpstat -p -d
