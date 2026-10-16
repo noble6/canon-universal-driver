@@ -2,7 +2,7 @@
 
 ## 1.1.0
 
-- `canonivec` USB backend: reads the printer's status during every job, and cancelling a job now aborts it on the printer (soft reset, `CancelJob`, reset). The stock CUPS USB backend leaves Canon printers waiting until their Stop button is pressed.
+- `canonivec` USB backend: reads the printer's status during every job, and cancelling a job now aborts it on the printer (soft reset, `CancelJob`, reset), and a job stopped with the printer's Stop button is reported as cancelled. The stock CUPS USB backend leaves Canon printers waiting until their Stop button is pressed.
 - Printer status monitoring: paper out, paper jam, cover open and other errors are reported to CUPS with Canon's support code. Verified on a G3010.
 - `canon-ivec-notify`: desktop notifications with Resume / Cancel job / Open queue, started at login.
 - Standard `ColorModel` (Color / Grayscale) option, so Chrome, GTK and Qt dialogs offer black-and-white printing.

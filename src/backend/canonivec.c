@@ -64,6 +64,7 @@ static void note_job(const unsigned char *data, int len) {
 }
 
 static volatile int g_reader_stop;
+static volatile int g_printer_cancel;   /* job ended with the printer's Stop button */
 static printer_t g_prn;
 
 static void on_term(int sig) {
@@ -195,6 +196,19 @@ static int scan(libusb_context *ctx, const char *want_model, const char *want_se
 
 /* ---- status reader ---- */
 
+/* An error state followed directly by idle (no processing in between)
+ * means the user pressed Stop on the printer. */
+static void watch_for_printer_cancel(void) {
+    static int in_error;
+    ivec_status_t st;
+    if (!ivec_status_latest(&st)) return;
+    const char *reason;
+    char msg[256];
+    if (ivec_status_reason(&st, &reason, msg, sizeof(msg))) in_error = 1;
+    else if (!strcmp(st.status, "idle")) { if (in_error) g_printer_cancel = 1; in_error = 0; }
+    else in_error = 0;
+}
+
 static void *reader(void *arg) {
     printer_t *p = arg;
     unsigned char buf[4096];
@@ -207,6 +221,7 @@ static void *reader(void *arg) {
         if (got > 0) {
             if (rawf) { fwrite(buf, 1, got, rawf); fflush(rawf); }
             ivec_status_feed((const char *)buf, (size_t)got);
+            watch_for_printer_cancel();
             /* a full buffer means the document continues; otherwise pace the
              * polling, the printer answers every read immediately */
             if (got < (int)sizeof(buf)) usleep(700000);
@@ -220,7 +235,7 @@ static void *reader(void *arg) {
 
 /* write everything, a second at a time, so cancel is noticed */
 static int write_all(printer_t *p, const unsigned char *data, int len) {
-    while (len > 0 && !g_cancel) {
+    while (len > 0 && !g_cancel && !g_printer_cancel) {
         int sent = 0;
         int r = libusb_bulk_transfer(p->h, p->ep_out, (unsigned char *)data, len, &sent, WRITE_TIMEOUT);
         data += sent;
@@ -232,7 +247,7 @@ static int write_all(printer_t *p, const unsigned char *data, int len) {
             return -1;
         }
     }
-    return g_cancel ? -1 : 0;
+    return (g_cancel || g_printer_cancel) ? -1 : 0;
 }
 
 static void cancel_on_printer(printer_t *p);
@@ -292,7 +307,7 @@ static void wait_for_printer(printer_t *p, int has_in) {
     if (!has_in) return;
     time_t start = time(NULL), asked = 0;
     int busy = 0;
-    while (!g_cancel) {
+    while (!g_cancel && !g_printer_cancel) {
         ivec_status_t st;
         time_t seen = ivec_status_latest(&st), now = time(NULL);
         const char *reason;
@@ -404,7 +419,7 @@ int main(int argc, char *argv[]) {
         }
         note_job(buf, (int)n);
         if (write_all(p, buf, (int)n) != 0) {
-            if (!g_cancel) rc = CUPS_BACKEND_FAILED;
+            if (!g_cancel && !g_printer_cancel) rc = CUPS_BACKEND_FAILED;
             break;
         }
     }
@@ -415,6 +430,13 @@ int main(int argc, char *argv[]) {
     } else if (rc == CUPS_BACKEND_OK) {
         wait_for_printer(p, have_reader);
         if (g_cancel) cancel_on_printer(p);
+    }
+
+    if (g_printer_cancel && !g_cancel) {
+        /* drop whatever is still queued so the next job starts clean */
+        fprintf(stderr, "INFO: Job cancelled at the printer\n");
+        soft_reset(p);
+        rc = CUPS_BACKEND_CANCEL;
     }
 
     g_reader_stop = 1;
