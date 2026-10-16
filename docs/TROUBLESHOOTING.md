@@ -38,6 +38,10 @@ sudo lpadmin -p <queue> -v "$(lpinfo -v | awk '/canonivec:/{print $2; exit}')"
 
 `system-config-printer` auto-creates a `usb://` queue for every USB printer it sees, next to the `canonivec://` queue from `canonctl setup`. `sudo scripts/install-local.sh` removes the duplicate and installs `71-canon-ivec.rules`, which stops it coming back. To remove one by hand: `sudo lpadmin -x <duplicate-queue>`.
 
+## 2-sided printing: backs upside down or in the wrong order
+
+On printers without a duplex unit the driver prints the fronts, then asks you to put the stack back with the **blank side facing you and the TOP edge going in first**, without reordering it. If the back sides still come out upside down on your model, set **Manual 2-sided back side** to **Turned** (print dialog options, or `lpoptions -p <queue> -o CNManualBack=Turned`) and please report your model in an issue.
+
 ## KDE says "A printer support package ... system-config-printer"
 
 Install it: `sudo pacman -S system-config-printer`. KDE's printer settings use it for extra features.

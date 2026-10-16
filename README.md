@@ -15,6 +15,8 @@ If you kept a Windows partition only because your Canon printer or its maintenan
 - **Fully open.** No proprietary libraries, no 32-bit dependencies. Plain C on top of libcups, so it should build anywhere CUPS runs, including ARM boards like the Raspberry Pi.
 - **The maintenance tools you were booting Windows for:** cleaning, deep cleaning, ink flush (system cleaning), nozzle check, print head alignment, roller and bottom plate cleaning.
 - **Paper-out, jam and cover-open alerts** as desktop notifications, like the Windows status monitor, and a **Cancel** that really stops the printer (the stock CUPS USB backend cannot do that with Canon printers).
+- **2-sided printing on printers without a duplex unit**: the front sides print, a window shows a picture of how to put the stack back, and Continue prints the backs (verified on a G3010).
+- **Print quality** Draft / Normal / High in every print dialog.
 - **Works everywhere printing works:** LibreOffice, Firefox, Chrome, GTK and Qt apps, and the `lp` command line all see the printer and its options.
 
 ## Quick start (Arch Linux, Manjaro, EndeavourOS, CachyOS)
@@ -87,7 +89,7 @@ When the printer stops for paper, a jam or an open cover, a notification shows w
 
 Notifications start automatically at login (`canon-ivec-notify`).
 
-Alerts and cancel were verified on a G3010: paper out, resume with the Black button, and cancel while waiting for paper. Other models use the same status messages. If an alert does not appear on yours, run `sudo canonctl report` after reproducing it and attach the output to an issue.
+Alerts, cancel, print quality and guided 2-sided printing were verified on a G3010: paper out, resume with the Black button, cancel while waiting for paper, Draft vs High, and 2-sided pages in order and upright. Other models use the same status messages. If an alert does not appear on yours, run `sudo canonctl report` after reproducing it and attach the output to an issue.
 
 ### Scanning
 
