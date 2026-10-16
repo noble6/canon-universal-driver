@@ -53,6 +53,7 @@ typedef struct {
     int rotate_back;
     int optimization;
     int manual_duplex;        /* no duplex unit: guided manual 2-sided */
+    int manual_back_turned;   /* PPD default of CNManualBack */
     int base_res;             /* resolution the printable areas are given in */
     char quality_high[24], quality_draft[24], draft_media[256];
     char default_quality[24];
@@ -109,20 +110,24 @@ static int load_model(const char *path, model_t *m) {
             snprintf(e->name, sizeof(e->name), "%s", opt);
             snprintf(e->ivec, sizeof(e->ivec), "%s", unquote(line));
         } else if (sscanf(line, "*%47[^:]:", key) == 1) {
-            char *val = unquote(line + strlen(key) + 2);
+            char *val = line + 1 + strlen(key);     /* skip "*key" */
+            if (*val == ':') val++;
+            while (*val == ' ' || *val == '\t') val++;
+            val = unquote(val);
             if (!strcmp(key, "cnivecProtocol")) m->protocol = atoi(val);
             else if (!strcmp(key, "cnivecDateTime")) m->datetime = !strcasecmp(val, "True");
             else if (!strcmp(key, "cnivecColorMode")) m->mono_only = !strcasecmp(val, "monochrome");
             else if (!strcmp(key, "cnivecRotateBack")) m->rotate_back = !strcasecmp(val, "True");
             else if (!strcmp(key, "cnivecOptimization")) m->optimization = !strcasecmp(val, "True");
             else if (!strcmp(key, "cnivecManualDuplex")) m->manual_duplex = !strcasecmp(val, "True");
+            else if (!strcmp(key, "DefaultCNManualBack")) m->manual_back_turned = !strcasecmp(val, "Turned");
             else if (!strcmp(key, "cnivecDraftMedia")) snprintf(m->draft_media, sizeof(m->draft_media), " %s ", val);
-            else if (!strcmp(key, "DefaultResolution")) m->base_res = atoi(line + 20);
-            else if (!strcmp(key, "DefaultcupsPrintQuality")) snprintf(m->default_quality, sizeof(m->default_quality), "%s", line + 26);
-            else if (!strcmp(key, "DefaultPageSize")) snprintf(m->default_size, sizeof(m->default_size), "%s", line + 18);
-            else if (!strcmp(key, "DefaultMediaType")) snprintf(m->default_media, sizeof(m->default_media), "%s", line + 19);
-            else if (!strcmp(key, "DefaultCNGrayscale")) m->default_gray = !strcasecmp(line + 21, "True");
-            else if (!strcmp(key, "DefaultColorModel")) m->default_gray = !strcasecmp(line + 20, "Gray");
+            else if (!strcmp(key, "DefaultResolution")) m->base_res = atoi(val);
+            else if (!strcmp(key, "DefaultcupsPrintQuality")) snprintf(m->default_quality, sizeof(m->default_quality), "%s", val);
+            else if (!strcmp(key, "DefaultPageSize")) snprintf(m->default_size, sizeof(m->default_size), "%s", val);
+            else if (!strcmp(key, "DefaultMediaType")) snprintf(m->default_media, sizeof(m->default_media), "%s", val);
+            else if (!strcmp(key, "DefaultCNGrayscale")) m->default_gray = !strcasecmp(val, "True");
+            else if (!strcmp(key, "DefaultColorModel")) m->default_gray = !strcasecmp(val, "Gray");
         }
     }
     fclose(f);
@@ -375,9 +380,9 @@ static int wait_for_flip(const char *job_id, int tumble) {
     unlink(flag);
     fflush(stdout);
     fprintf(stderr, "STATE: +media-needed-warning\n");
-    /* Pages come out top edge first, so only two things matter for the
-     * reload: blank side facing the user, TOP edge in first.  Short-edge
-     * jobs get their backs rotated here, so the instruction is the same. */
+    /* Only two things matter for the reload: blank side facing the user,
+     * TOP edge in first.  The backs are rotated here as needed, so the
+     * instruction is the same for long and short edge. */
     (void)tumble;
     fprintf(stderr, "WARNING: Job %s: front sides sent. When they have finished printing, put the stack back "
                     "in the rear tray with the blank side facing you and the TOP edge going in first. "
@@ -438,6 +443,8 @@ int main(int argc, char *argv[]) {
     membuf_t *color = NULL, *gray = NULL;   /* one per page */
     int npages = 0, cap = 0, colorful = 0, job_gray = 1, rc = 0, started = 0, draft = 0;
     int manual = 0, tumble = 0;
+    const char *mb = cupsGetOption("CNManualBack", nopts, opts);
+    int back_turned = mb ? !strcasecmp(mb, "Turned") : m->manual_back_turned;
     ivec_page_config_t cfg = { 0 };
     cups_page_header2_t h;
 
@@ -487,8 +494,11 @@ int main(int argc, char *argv[]) {
 
         fprintf(stderr, "INFO: Processing page %d\n", npages);
         int rotate = m->rotate_back && h.Duplex && !h.Tumble && npages % 2 == 1;
-        /* manual 2-sided, short edge: the reloaded stack comes in upside down */
-        if (manual) rotate = tumble && npages % 2 == 0;
+        /* Manual 2-sided: with the stack reloaded blank side facing the user,
+         * TOP edge in first, long-edge backs must be turned 180 degrees and
+         * short-edge backs not (verified on a G3010).  CNManualBack=Turned
+         * swaps this for printers whose paper path differs. */
+        if (manual) rotate = npages % 2 == 0 && ((!tumble) != back_turned);
         int want_color = !(m->optimization && gray_req);
         int want_gray = m->optimization && (gray_req || (hold && job_gray));
         colorful = 0;

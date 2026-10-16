@@ -165,7 +165,12 @@ def ppd_for(m, version):
                    '*Duplex None/Off: "<</Duplex false>>setpagedevice"\n'
                    '*Duplex DuplexNoTumble/Long Edge (flip pages by hand): "<</Duplex true/Tumble false>>setpagedevice"\n'
                    '*Duplex DuplexTumble/Short Edge (flip pages by hand): "<</Duplex true/Tumble true>>setpagedevice"\n'
-                   '*CloseUI: *Duplex\n\n')
+                   '*CloseUI: *Duplex\n'
+                   '*OpenUI *CNManualBack/Manual 2-sided back side: PickOne\n'
+                   '*OrderDependency: 10 AnySetup *CNManualBack\n*DefaultCNManualBack: Standard\n'
+                   '*CNManualBack Standard/Standard: ""\n'
+                   '*CNManualBack Turned/Turned 180 degrees (if backs come out upside down): ""\n'
+                   '*CloseUI: *CNManualBack\n\n')
     if m['duplex']:
         out.append('*OpenUI *Duplex/2-Sided Printing: PickOne\n*OrderDependency: 10 AnySetup *Duplex\n'
                    '*DefaultDuplex: None\n'
