@@ -148,12 +148,18 @@ def main(out_path):
         devid = devid.group(1) if devid else ''
         mdl = re.search(r'MDL:([^;]+);', devid)
 
+        # borderless overhang per paper size: top, left, bottom, right in 1/100 mm
+        overhang = {pwg: [abs(int(v)) for v in vals.split(',')]
+                    for pwg, vals in re.findall(r'<ivec:margin_borderless papersize="([^"]+)">([^<]+)<', caps)}
         out_sizes = []
         for name, s in sizes.items():
             pwg = mp['size'].get(name.lower())
             if not pwg or name not in area or name not in ia:
                 continue
-            out_sizes.append(dict(s, ia=ia[name], print=area[name], pwg=pwg))
+            entry = dict(s, ia=ia[name], print=area[name], pwg=pwg)
+            if name.endswith('.bl') and pwg in overhang:
+                entry['overhang'] = overhang[pwg]
+            out_sizes.append(entry)
         maint, maint_dt, maint_host = parse_maint(caps)
         ppd_text = open(ppd, errors='replace').read()
         out_media = [dict(m, ivec=mp['media'][m['name'].lower()])

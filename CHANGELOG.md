@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.0
+
+- Canon Photo Print: borderless photos are laid out for the part of the page that actually lands on the paper. The printer prints past the edges by a model-specific amount (G3010: 2 mm top, 2.8 mm sides, 5 mm bottom); the preview now shows the real crop and nothing important is cut off at the bottom.
+- PPDs carry the borderless overhang per paper size (`*cnivecOverhang`, from each model's capability data).
+- `research/pwg2png.py` decodes the PWG pages of an IVEC stream, optionally cropped to the paper.
+
 ## 1.5.0
 
 - Canon Photo Print: **Color** panel (brightness, contrast, saturation, cyan / magenta / yellow balance) with live preview; faster preview for large photos.

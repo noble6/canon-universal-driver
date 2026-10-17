@@ -86,6 +86,8 @@ From the shell: `lp -o PageSize=4x6.bl -o MediaType=glossygold photo.jpg`, or li
 
 Open **Canon Photo Print** from the application menu, or right-click photos in Dolphin and choose **Print photos...** (it is also listed under "Open With" in image viewers). Add or drag in photos, pick the paper size and layout (1, 2, 4, 6 or 9 per sheet), and press Print. For 4x6, 5x7 and similar sizes it picks borderless, photo paper and High quality automatically; photos are rotated to fill the sheet best, and **Fit whole photo** avoids cropping. The **Color** panel adjusts brightness, contrast, saturation and the cyan / magenta / yellow balance with a live preview.
 
+Borderless printing always runs slightly past the paper edges (on a G3010: 2 mm at the top, 2.8 mm at the sides, 5 mm at the bottom), and that part is lost. Canon Photo Print lays the photo out for the part that lands on the paper, and its preview shows exactly that, so text near the edges is not cut off. Other applications printing borderless lose those strips, just like with Canon's own driver.
+
 Colours look off (for example too red or magenta)? Print a nozzle check first (`canonctl nozzle`). Gaps or missing lines in one colour block mean a clogged nozzle: run `canonctl clean`, check again, then `canonctl deep-clean` if needed. Also make sure the paper type matches the paper you loaded. From a terminal: `canon-photo-print *.jpg`.
 
 ### Right-click printing

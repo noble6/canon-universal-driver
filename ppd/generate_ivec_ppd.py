@@ -140,6 +140,11 @@ def ppd_for(m, version):
     out.append(f'*DefaultPaperDimension: {default}\n')
     for s in sizes:
         out.append(f'*PaperDimension {s["name"]}: "{fmt(s["w"])} {fmt(s["h"])}"\n')
+    # how far borderless printing runs past each paper edge (1/100 mm:
+    # top left bottom right); photo layout uses it to keep subjects on paper
+    for s in sizes:
+        if s.get('overhang'):
+            out.append(f'*cnivecOverhang {s["name"]}: "{" ".join(str(v) for v in s["overhang"])}"\n')
     for s in sizes:
         out.append(f'*cnivecPaperSize {s["name"]}: "{s["pwg"]} {s["print"][0]} {s["print"][1]} '
                    f'{fmt(s["w"])} {fmt(s["h"])}"\n')

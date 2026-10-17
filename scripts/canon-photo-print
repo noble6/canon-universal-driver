@@ -59,6 +59,8 @@ def printer_ppd(queue):
     except OSError:
         return None
     sizes, area, media = {}, {}, []
+    printarea, overhang = {}, {}
+    res = 600
     default_media = None
     for line in text.splitlines():
         if re.match(r'\*[a-z]{2}(_[A-Z]{2})?\.', line):
@@ -76,10 +78,42 @@ def printer_ppd(queue):
         m = re.match(r'\*DefaultMediaType: (\S+)', line)
         if m:
             default_media = m.group(1)
+        m = re.match(r'\*cnivecPaperSize ([^:]+): "\S+ (\d+) (\d+)', line)
+        if m:
+            printarea[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+        m = re.match(r'\*cnivecOverhang ([^:]+): "(\d+) (\d+) (\d+) (\d+)"', line)
+        if m:
+            overhang[m.group(1)] = [int(v) for v in m.groups()[1:]]
+        m = re.match(r'\*DefaultResolution: (\d+)', line)
+        if m:
+            res = int(m.group(1))
     for k, s in sizes.items():
         s['area'] = area.get(k, [0, 0, s['w'], s['h']])
+        s['visible'] = visible_area(s, printarea.get(k), overhang.get(k), res)
     qualities = re.findall(r'^\*cupsPrintQuality (\w+)/', text, re.M)
     return {'sizes': sizes, 'media': media, 'default_media': default_media, 'qualities': qualities}
+
+
+def visible_area(size, printarea, overhang, res):
+    """Part of a borderless page that lands on the paper, in points.
+
+    The driver enlarges the page to the printer's borderless print area
+    (keeping the aspect ratio, centred), and the printer places that area
+    past the paper edges by its overhang (top, left, bottom, right, in
+    1/100 mm; e.g. 2 / 2.8 / 5 / 2.8 mm on a G3010).  Whatever falls
+    outside the paper is lost, mostly at the bottom."""
+    if not printarea or not overhang:
+        return None
+    pw, ph = size['w'] / 72 * res, size['h'] / 72 * res          # paper in printer pixels
+    PW, PH = printarea
+    s = min(PW / pw, PH / ph)
+    ofs_x, ofs_y = (PW - round(pw * s)) / 2, (PH - round(ph * s)) / 2
+    top, left = overhang[0] / 2540 * res, overhang[1] / 2540 * res
+    k = 72 / res / s                                               # printer px -> page points
+    return QRectF((left - ofs_x) * k, (top - ofs_y) * k, pw * k, ph * k)
+
+
+BLEED = 72 / 25.4      # 1 mm of picture past the paper edge, so no white shows
 
 
 def base_sizes(sizes):
@@ -138,6 +172,9 @@ def adjust(img, a):
 def cells(size, borderless, count, cols, rows):
     """Photo rectangles (points, top-left origin) on a portrait sheet."""
     w, h = size['w'], size['h']
+    if borderless and size.get('visible') is not None and count == 1:
+        # lay the photo out for what reaches the paper, plus a little bleed
+        return [size['visible'].adjusted(-BLEED, -BLEED, BLEED, BLEED)]
     if borderless:
         x0, y0, x1, y1 = 0.0, 0.0, w, h
     else:
@@ -222,6 +259,10 @@ def preview_image(photos, size, borderless, layout, fill, copies_each, page_no, 
         l, b, r, t = size['area']
         q.drawRect(QRectF(l, size['h'] - t, r - l, t - b))
     q.end()
+    v = size.get('visible')
+    if borderless and v is not None:
+        # show the sheet as it comes out: only what lands on the paper
+        img = img.copy(int(v.x() * scale), int(v.y() * scale), int(v.width() * scale), int(v.height() * scale))
     return img, pages
 
 
