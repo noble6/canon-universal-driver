@@ -1,6 +1,6 @@
 pkgbase = canon-ivec-driver
 	pkgdesc = Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets (G1010-G4010, G3020, GX, E, TS, TR, MG): printing, maintenance, paper-out alerts, guided 2-sided
-	pkgver = 1.5.0
+	pkgver = 1.6.0
 	pkgrel = 1
 	url = https://github.com/noble6/canon-universal-driver
 	install = canon-ivec-driver.install
@@ -27,7 +27,7 @@ pkgbase = canon-ivec-driver
 	optdepends = sane-airscan: network scanning (eSCL)
 	optdepends = simple-scan: scanning GUI
 	options = !debug
-	source = canon-ivec-driver-1.5.0.tar.gz::https://github.com/noble6/canon-universal-driver/archive/refs/tags/v1.5.0.tar.gz
-	sha256sums = 8b0c8c2cfe15c41b203433b321d9fe1e47485ee1fa15f70b8ce421554bdf9072
+	source = canon-ivec-driver-1.6.0.tar.gz::https://github.com/noble6/canon-universal-driver/archive/refs/tags/v1.6.0.tar.gz
+	sha256sums = 3e6f9105345656052279a1e985d013e54e4467a973333bd438dc672ee06abd09
 
 pkgname = canon-ivec-driver
