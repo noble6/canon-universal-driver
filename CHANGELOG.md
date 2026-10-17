@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.1
+
+- Canon Photo Print: borderless photos keep the exact top/bottom compensation but cover the full width again, which tolerates a sheet sitting slightly off-centre (thin white strip on one side in 1.6.0).
+
 ## 1.6.0
 
 - Canon Photo Print: borderless photos are laid out for the part of the page that actually lands on the paper. The printer prints past the edges by a model-specific amount (G3010: 2 mm top, 2.8 mm sides, 5 mm bottom); the preview now shows the real crop and nothing important is cut off at the bottom.

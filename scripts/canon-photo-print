@@ -173,8 +173,13 @@ def cells(size, borderless, count, cols, rows):
     """Photo rectangles (points, top-left origin) on a portrait sheet."""
     w, h = size['w'], size['h']
     if borderless and size.get('visible') is not None and count == 1:
-        # lay the photo out for what reaches the paper, plus a little bleed
-        return [size['visible'].adjusted(-BLEED, -BLEED, BLEED, BLEED)]
+        # Vertically, lay the photo out for what reaches the paper (the
+        # overhang is uneven: 2 mm top, 5 mm bottom on a G3010), plus bleed.
+        # Horizontally, keep covering the full width: the overhang there is
+        # small and the sheet's sideways position depends on the paper
+        # guides, so maximum coverage avoids white slivers.
+        v = size['visible']
+        return [QRectF(0.0, v.y() - BLEED, w, v.height() + 2 * BLEED)]
     if borderless:
         x0, y0, x1, y1 = 0.0, 0.0, w, h
     else:
