@@ -9,6 +9,7 @@ builds the sheets as a PDF at the exact page size, and prints with
 photo-friendly settings (photo paper, High quality, borderless where the
 printer supports it).  Needs PySide6.
 """
+import json
 import os
 import re
 import subprocess
@@ -24,12 +25,13 @@ except ImportError:
     np = None
 
 try:
-    from PySide6.QtCore import QMarginsF, QRectF, QSize, QSizeF, Qt, QTimer
-    from PySide6.QtGui import (QColor, QIcon, QImage, QImageReader, QPageLayout, QPageSize, QPainter,
-                               QPdfWriter, QPixmap)
+    from PySide6.QtCore import QMarginsF, QPointF, QRectF, QSize, QSizeF, Qt, QTimer
+    from PySide6.QtGui import (QColor, QFont, QIcon, QImage, QImageReader, QPageLayout, QPageSize, QPainter,
+                               QPdfWriter, QPen, QPixmap)
     from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
                                    QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-                                   QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget, QGroupBox)
+                                   QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget, QGroupBox, QDialog,
+                                   QDoubleSpinBox, QDialogButtonBox)
 except ImportError:
     sys.exit('canon-photo-print needs PySide6 (Arch: sudo pacman -S pyside6, Debian: python3-pyside6.*)')
 
@@ -61,6 +63,7 @@ def printer_ppd(queue):
     sizes, area, media = {}, {}, []
     printarea, overhang = {}, {}
     res = 600
+    cover = False
     default_media = None
     for line in text.splitlines():
         if re.match(r'\*[a-z]{2}(_[A-Z]{2})?\.', line):
@@ -87,18 +90,21 @@ def printer_ppd(queue):
         m = re.match(r'\*DefaultResolution: (\d+)', line)
         if m:
             res = int(m.group(1))
+        if line.startswith('*cnivecBorderlessCover: "True"'):
+            cover = True
     for k, s in sizes.items():
         s['area'] = area.get(k, [0, 0, s['w'], s['h']])
-        s['visible'] = visible_area(s, printarea.get(k), overhang.get(k), res)
+        s['visible'] = visible_area(s, printarea.get(k), overhang.get(k), res, cover)
     qualities = re.findall(r'^\*cupsPrintQuality (\w+)/', text, re.M)
     return {'sizes': sizes, 'media': media, 'default_media': default_media, 'qualities': qualities}
 
 
-def visible_area(size, printarea, overhang, res):
+def visible_area(size, printarea, overhang, res, cover=False):
     """Part of a borderless page that lands on the paper, in points.
 
     The driver enlarges the page to the printer's borderless print area
-    (keeping the aspect ratio, centred), and the printer places that area
+    (keeping the aspect ratio, centred; filling it completely when the PPD
+    says cnivecBorderlessCover), and the printer places that area
     past the paper edges by its overhang (top, left, bottom, right, in
     1/100 mm; e.g. 2 / 2.8 / 5 / 2.8 mm on a G3010).  Whatever falls
     outside the paper is lost, mostly at the bottom."""
@@ -106,14 +112,44 @@ def visible_area(size, printarea, overhang, res):
         return None
     pw, ph = size['w'] / 72 * res, size['h'] / 72 * res          # paper in printer pixels
     PW, PH = printarea
-    s = min(PW / pw, PH / ph)
+    s = max(PW / pw, PH / ph) if cover else min(PW / pw, PH / ph)
     ofs_x, ofs_y = (PW - round(pw * s)) / 2, (PH - round(ph * s)) / 2
     top, left = overhang[0] / 2540 * res, overhang[1] / 2540 * res
     k = 72 / res / s                                               # printer px -> page points
     return QRectF((left - ofs_x) * k, (top - ofs_y) * k, pw * k, ph * k)
 
 
-BLEED = 72 / 25.4      # 1 mm of picture past the paper edge, so no white shows
+MM = 72 / 25.4
+# picture past the expected paper edge (mm): less = less zoom, more = more
+# tolerance for a sheet that is not exactly where the printer expects it
+EXTENSIONS = [('Small (least zoom)', 0.8), ('Normal', 1.5), ('Large (safest)', 2.5)]
+CONFIG = os.path.join(os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'canon-ivec',
+                      'photo-print.json')
+
+
+def load_config():
+    try:
+        return json.load(open(CONFIG))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_config(cfg):
+    os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+    json.dump(cfg, open(CONFIG, 'w'), indent=1)
+
+
+def paper_to_page(size, x_mm, y_mm, shift_mm=0.0):
+    """Where a point on the paper (mm from its top-left corner) is on the page."""
+    v = size['visible']
+    return QPointF(v.x() + (x_mm + shift_mm) * MM * v.width() / size['w'],
+                   v.y() + y_mm * MM * v.height() / size['h'])
+
+
+def on_paper(size, shift_mm=0.0):
+    """Page rectangle that lands on the paper, given the sheet's sideways shift."""
+    v = size['visible']
+    return v.translated(shift_mm * MM * v.width() / size['w'], 0)
 
 
 def base_sizes(sizes):
@@ -169,17 +205,17 @@ def adjust(img, a):
     return QImage(out.data, w, h, 3 * w, QImage.Format_RGB888).copy()
 
 
-def cells(size, borderless, count, cols, rows):
-    """Photo rectangles (points, top-left origin) on a portrait sheet."""
+def cells(size, borderless, count, cols, rows, geo=None):
+    """Photo rectangles (points, top-left origin) on a portrait sheet.
+    geo: {'shift': mm the sheet sits right of centre, 'bleed': mm}."""
     w, h = size['w'], size['h']
     if borderless and size.get('visible') is not None and count == 1:
-        # Vertically, lay the photo out for what reaches the paper (the
-        # overhang is uneven: 2 mm top, 5 mm bottom on a G3010), plus bleed.
-        # Horizontally, keep covering the full width: the overhang there is
-        # small and the sheet's sideways position depends on the paper
-        # guides, so maximum coverage avoids white slivers.
-        v = size['visible']
-        return [QRectF(0.0, v.y() - BLEED, w, v.height() + 2 * BLEED)]
+        # Lay the photo out for what reaches the paper (the overhang is
+        # uneven: 2 mm top, 5 mm bottom on a G3010), at the sheet's measured
+        # sideways position, plus the chosen extension.
+        geo = geo or {}
+        b = geo.get('bleed', 1.5) * MM
+        return [on_paper(size, geo.get('shift', 0.0)).adjusted(-b, -b, b, b)]
     if borderless:
         x0, y0, x1, y1 = 0.0, 0.0, w, h
     else:
@@ -210,7 +246,7 @@ def draw_photo(p, img, rect, fill):
 
 
 def render_sheets(paint_page, photos, size, borderless, layout, fill, copies_each=1, only=None,
-                  adj=None, preview=False):
+                  adj=None, preview=False, geo=None):
     """Calls paint_page(index) -> QPainter for each sheet (or just sheet
     `only`) and draws it.  Returns the number of sheets."""
     count, cols, rows = layout
@@ -220,14 +256,14 @@ def render_sheets(paint_page, photos, size, borderless, layout, fill, copies_eac
         if only is not None and i != only:
             continue
         p = paint_page(i)
-        for img_path, rect in zip(page, cells(size, borderless, count, cols, rows)):
+        for img_path, rect in zip(page, cells(size, borderless, count, cols, rows, geo)):
             img = adjust(preview_source(img_path) if preview else load_image(img_path), adj)
             if img:
                 draw_photo(p, img, rect, fill)
     return len(pages)
 
 
-def write_pdf(path, photos, size, borderless, layout, fill, copies_each, adj=None):
+def write_pdf(path, photos, size, borderless, layout, fill, copies_each, adj=None, geo=None):
     pdf = QPdfWriter(path)
     pdf.setResolution(300)
     pdf.setPageLayout(QPageLayout(QPageSize(QSizeF(size['w'], size['h']), QPageSize.Point, 'photo'),
@@ -244,13 +280,13 @@ def write_pdf(path, photos, size, borderless, layout, fill, copies_each, adj=Non
         painter.scale(scale, scale)
         return painter
 
-    n = render_sheets(page, photos, size, borderless, layout, fill, copies_each, adj=adj)
+    n = render_sheets(page, photos, size, borderless, layout, fill, copies_each, adj=adj, geo=geo)
     if painter.isActive():
         painter.end()
     return n
 
 
-def preview_image(photos, size, borderless, layout, fill, copies_each, page_no, max_px, adj=None):
+def preview_image(photos, size, borderless, layout, fill, copies_each, page_no, max_px, adj=None, geo=None):
     scale = max_px / max(size['w'], size['h'])
     img = QImage(int(size['w'] * scale), int(size['h'] * scale), QImage.Format_RGB32)
     img.fill(QColor('white'))
@@ -258,17 +294,83 @@ def preview_image(photos, size, borderless, layout, fill, copies_each, page_no, 
     q.setRenderHint(QPainter.SmoothPixmapTransform)
     q.scale(scale, scale)
     pages = render_sheets(lambda i: q, photos, size, borderless, layout, fill, copies_each, only=page_no,
-                          adj=adj, preview=True)
+                          adj=adj, preview=True, geo=geo)
     if not borderless:   # show the unprintable margin
         q.setPen(QColor('#d0d0d0'))
         l, b, r, t = size['area']
         q.drawRect(QRectF(l, size['h'] - t, r - l, t - b))
     q.end()
-    v = size.get('visible')
+    v = on_paper(size, (geo or {}).get('shift', 0.0)) if size.get('visible') is not None else None
     if borderless and v is not None:
         # show the sheet as it comes out: only what lands on the paper
         img = img.copy(int(v.x() * scale), int(v.y() * scale), int(v.width() * scale), int(v.height() * scale))
     return img, pages
+
+
+def write_alignment_pdf(path, size):
+    """Borderless test sheet: numbered ticks just inside and past both side
+    edges.  The last tick still on the paper on each side tells where the
+    sheet sits."""
+    pdf = QPdfWriter(path)
+    pdf.setResolution(300)
+    pdf.setPageLayout(QPageLayout(QPageSize(QSizeF(size['w'], size['h']), QPageSize.Point, 'align'),
+                                  QPageLayout.Portrait, QMarginsF(0, 0, 0, 0)))
+    p = QPainter(pdf)
+    p.scale(300 / 72.0, 300 / 72.0)
+    paper_w = size['w'] / MM
+    p.setPen(QPen(QColor('black'), 0.35 * MM))
+    font = QFont('Sans')
+    font.setPixelSize(8)          # painter units are points here
+    p.setFont(font)
+    offsets = [x / 2 for x in range(-6, 7)]          # -3.0 .. +3.0 mm past the expected edge
+    top = 22.0
+    for i, off in enumerate(offsets):
+        y0, y1 = top + i * 7.0, top + i * 7.0 + 5.0
+        for x_mm in (-off, paper_w + off):           # left tick, right tick
+            a, b = paper_to_page(size, x_mm, y0), paper_to_page(size, x_mm, y1)
+            p.drawLine(a, b)
+        c = paper_to_page(size, paper_w / 2, y1)
+        p.drawText(QRectF(c.x() - 30, c.y() - 12, 60, 12), Qt.AlignCenter, f'{off:+.1f}')
+    title = QFont('Sans')
+    title.setPixelSize(9)
+    title.setBold(True)
+    p.setFont(title)
+    t = paper_to_page(size, paper_w / 2, 7)
+    p.drawText(QRectF(t.x() - 120, t.y() - 8, 240, 30), Qt.AlignHCenter | Qt.AlignTop,
+               'Borderless alignment\nlast line on the paper: left / right')
+    p.end()
+
+
+class AlignDialog(QDialog):
+    def __init__(self, parent, queue):
+        super().__init__(parent)
+        self.setWindowTitle('Borderless alignment')
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel(
+            '1. Load one sheet of 4x6 photo paper (plain paper works too) and press "Print test sheet".\n'
+            '2. Each row has a short line near the left and the right edge, labelled -3.0 to +3.0.\n'
+            '   On each side, find the LAST row (going down) whose line is still on the paper.\n'
+            '3. Enter those two numbers and press OK.'))
+        test = QPushButton('Print test sheet')
+        test.clicked.connect(lambda: parent.print_alignment())
+        lay.addWidget(test)
+        form = QFormLayout()
+        self.left, self.right = QDoubleSpinBox(), QDoubleSpinBox()
+        for sb in (self.left, self.right):
+            sb.setRange(-3.0, 3.0)
+            sb.setSingleStep(0.5)
+            sb.setDecimals(1)
+        form.addRow('Left edge: last visible row', self.left)
+        form.addRow('Right edge: last visible row', self.right)
+        lay.addLayout(form)
+        box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
+        lay.addWidget(box)
+
+    def shift(self):
+        # paper sits d mm right: right edge shows up to +d, left edge only up to -d
+        return (self.right.value() - self.left.value()) / 2
 
 
 # ---- window ----
@@ -343,6 +445,26 @@ class PhotoPrint(QMainWindow):
         form.addRow('Quality', self.quality)
         form.addRow('Prints of each photo', self.each)
         form.addRow('Copies of the whole job', self.copies)
+        border = QGroupBox('Borderless')
+        bform = QFormLayout(border)
+        self.extension = QComboBox()
+        for label, mm in EXTENSIONS:
+            self.extension.addItem(label, mm)
+        self.extension.setCurrentIndex(1)
+        self.shift = QDoubleSpinBox()
+        self.shift.setRange(-4.0, 4.0)
+        self.shift.setSingleStep(0.5)
+        self.shift.setDecimals(1)
+        self.shift.setSuffix(' mm')
+        self.shift.setToolTip('How far the sheet sits right (+) or left (-) of where the printer expects it')
+        align = QPushButton('Alignment test...')
+        align.clicked.connect(self.alignment)
+        bform.addRow('Extension', self.extension)
+        bform.addRow('Paper position', self.shift)
+        bform.addRow('', align)
+        self.extension.currentIndexChanged.connect(self.geo_changed)
+        self.shift.valueChanged.connect(self.geo_changed)
+
         self.sliders = {}
         color = QGroupBox('Color')
         cform = QFormLayout(color)
@@ -371,6 +493,7 @@ class PhotoPrint(QMainWindow):
         self.print_btn.clicked.connect(self.do_print)
         side = QVBoxLayout()
         side.addLayout(form)
+        side.addWidget(border)
         side.addWidget(color)
         side.addStretch(1)
         self.status = QLabel()
@@ -446,6 +569,12 @@ class PhotoPrint(QMainWindow):
             self.status.setText('')
         for w in (self.paper, self.media, self.quality):
             w.blockSignals(False)
+        saved = load_config().get(queue, {})
+        self._loading = True
+        if hasattr(self, 'extension'):
+            self.extension.setCurrentIndex(saved.get('extension', 1))
+            self.shift.setValue(saved.get('shift', 0.0))
+        self._loading = False
         self.paper_changed()
 
     def size(self):
@@ -480,6 +609,41 @@ class PhotoPrint(QMainWindow):
                         break
         self.refresh()
 
+    def geometry(self):
+        return {'bleed': self.extension.currentData(), 'shift': self.shift.value()}
+
+    def geo_changed(self, *_):
+        q = self.printer.currentText()
+        if q and not getattr(self, '_loading', False):
+            cfg = load_config()
+            cfg[q] = {'extension': self.extension.currentIndex(), 'shift': self.shift.value()}
+            save_config(cfg)
+        self.refresh()
+
+    def alignment(self):
+        dlg = AlignDialog(self, self.printer.currentText())
+        if dlg.exec() == QDialog.Accepted:
+            self.shift.setValue(dlg.shift())
+            self.status.setText(f'Paper position set to {dlg.shift():+.1f} mm for {self.printer.currentText()}.')
+
+    def print_alignment(self):
+        size = self.info['sizes'].get('4x6.bl') if self.info else None
+        if not size or size.get('visible') is None:
+            QMessageBox.information(self, 'Alignment', 'This printer has no borderless 4x6 size.')
+            return
+        fd, pdf = tempfile.mkstemp(suffix='.pdf', prefix='canon-align-')
+        os.close(fd)
+        try:
+            write_alignment_pdf(pdf, size)
+            media = next((self.media.itemData(i) for i in range(self.media.count())
+                          if any(h in (self.media.itemData(i) or '').lower() for h in PHOTO_HINT[:2])), None)
+            cmd = ['lp', '-d', self.printer.currentText(), '-t', 'Borderless alignment', '-o', 'PageSize=4x6.bl']
+            if media:
+                cmd += ['-o', f'MediaType={media}']
+            subprocess.run(cmd + [pdf], check=True, capture_output=True)
+        finally:
+            os.unlink(pdf)
+
     def adjustments(self):
         return {k: sl.value() for k, sl in self.sliders.items()}
 
@@ -493,7 +657,7 @@ class PhotoPrint(QMainWindow):
             return
         img, pages = preview_image(photos, size, self.size()['name'].endswith('.bl'),
                                    self.layout_box.currentData(), self.fill.currentData(), self.each.value(),
-                                   min(self.page_no, 10 ** 6), 900, self.adjustments())
+                                   min(self.page_no, 10 ** 6), 900, self.adjustments(), self.geometry())
         if self.page_no >= pages:
             self.page_no = pages - 1
             return self.refresh()
@@ -522,7 +686,7 @@ class PhotoPrint(QMainWindow):
         os.close(fd)
         try:
             pages = write_pdf(pdf, photos, size, size['name'].endswith('.bl'), self.layout_box.currentData(),
-                              self.fill.currentData(), self.each.value(), self.adjustments())
+                              self.fill.currentData(), self.each.value(), self.adjustments(), self.geometry())
             cmd = ['lp', '-d', queue, '-t', f'Photos ({len(photos)})', '-n', str(self.copies.value()),
                    '-o', f'PageSize={size["name"]}', '-o', 'ColorModel=RGB', '-o', 'print-color-mode=color']
             if self.media.currentData():
@@ -546,6 +710,11 @@ def main():
         # canon-photo-print --pdf OUT QUEUE PAGESIZE LAYOUT(1|2|4|6|9) PHOTO... (for tests)
         i = sys.argv.index('--pdf')
         out, queue, page, count = sys.argv[i + 1:i + 5]
+        if count == 'align':
+            app = QApplication.instance() or QApplication(sys.argv[:1])
+            write_alignment_pdf(out, printer_ppd(queue)['sizes'][page])
+            print(f'alignment sheet -> {out}')
+            return 0
         photos = sys.argv[i + 5:]
         app = QApplication.instance() or QApplication(sys.argv[:1])
         info = printer_ppd(queue)

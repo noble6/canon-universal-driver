@@ -86,7 +86,12 @@ From the shell: `lp -o PageSize=4x6.bl -o MediaType=glossygold photo.jpg`, or li
 
 Open **Canon Photo Print** from the application menu, or right-click photos in Dolphin and choose **Print photos...** (it is also listed under "Open With" in image viewers). Add or drag in photos, pick the paper size and layout (1, 2, 4, 6 or 9 per sheet), and press Print. For 4x6, 5x7 and similar sizes it picks borderless, photo paper and High quality automatically; photos are rotated to fill the sheet best, and **Fit whole photo** avoids cropping. The **Color** panel adjusts brightness, contrast, saturation and the cyan / magenta / yellow balance with a live preview.
 
-Borderless printing always runs slightly past the paper edges (on a G3010: 2 mm at the top, 2.8 mm at the sides, 5 mm at the bottom), and that part is lost. Canon Photo Print lays the photo out so the uneven top and bottom overspray does not cut off text, and its preview shows the expected crop. For borderless prints, slide the paper guides snugly against the stack: a sheet sitting off-centre shows up as a thin white strip on one side. Other applications printing borderless lose those strips, just like with Canon's own driver.
+Borderless printing always runs slightly past the paper edges (on a G3010: 2 mm at the top, 2.8 mm at the sides, 5 mm at the bottom), and that part is lost. Canon Photo Print lays the photo out for the part that lands on the paper, so the uneven top and bottom overspray does not cut off text, and the preview shows the real crop. Under **Borderless**:
+
+- **Extension**: how far the photo runs past the paper edge. Small zooms the least; Large is the most forgiving.
+- **Paper position** and **Alignment test...**: if a thin white strip shows on one side, print the one-sheet alignment test, read the last visible line on the left and right, and enter the two numbers. The app remembers your printer's position from then on.
+
+The driver also fills the borderless print area completely (Canon's driver leaves about 0.5 mm unprinted at two edges), so there is no sliver to show through. Other applications printing borderless lose those strips, just like with Canon's own driver.
 
 Colours look off (for example too red or magenta)? Print a nozzle check first (`canonctl nozzle`). Gaps or missing lines in one colour block mean a clogged nozzle: run `canonctl clean`, check again, then `canonctl deep-clean` if needed. Also make sure the paper type matches the paper you loaded. From a terminal: `canon-photo-print *.jpg`.
 

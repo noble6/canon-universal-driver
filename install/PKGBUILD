@@ -1,6 +1,6 @@
 # Build from the local checkout:  cd install && makepkg -si
 pkgname=canon-ivec-driver
-pkgver=1.6.1
+pkgver=1.7.0
 pkgrel=1
 pkgdesc="Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets using the IVEC protocol (G, E, TS, TR, MG, MB, GX, GM series)"
 arch=('x86_64' 'aarch64' 'armv7h' 'i686')

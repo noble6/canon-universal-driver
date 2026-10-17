@@ -36,7 +36,7 @@ sudo lpadmin -p <queue> -v "$(lpinfo -v | awk '/canonivec:/{print $2; exit}')"
 
 ## Borderless photo has a thin white strip on one side
 
-The printer prints only a few millimetres past each paper edge, so the sheet must sit centred. Slide the paper guides until they touch both sides of the stack (the guides move together and centre the paper). Small 4x6 stacks shift easily if the guides are left open.
+The printer prints only a few millimetres past each paper edge, so the sheet must sit where the printer expects it. First slide the paper guides until they touch both sides of the stack (they move together and centre the paper). If the strip is still there, open Canon Photo Print, press **Alignment test...** under Borderless, print the test sheet and enter the two numbers it shows; the app then shifts borderless photos to match your printer.
 
 ## The printer shows up twice
 

@@ -1,7 +1,7 @@
 # Maintainer: noble6 <https://github.com/noble6>
 # AUR / release package: builds the tagged release from GitHub.
 pkgname=canon-ivec-driver
-pkgver=1.6.1
+pkgver=1.7.0
 pkgrel=1
 pkgdesc="Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets (G1010-G4010, G3020, GX, E, TS, TR, MG): printing, maintenance, paper-out alerts, guided 2-sided"
 arch=('x86_64' 'aarch64' 'armv7h' 'i686')

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.0
+
+- Borderless: the driver now fills the printer's borderless print area completely instead of fitting inside it (Canon's driver leaves about 0.5 mm unprinted at two edges, which showed as a white strip). `CNBorderlessCover=False` restores Canon's behaviour.
+- Canon Photo Print: **Extension** setting (Small / Normal / Large: less zoom vs more tolerance), **Paper position** remembered per printer, and a one-sheet **Alignment test** that measures where the printer puts the sheet. Fixes the slight zoom of 1.6.1, which covered the full width to hide a strip.
+
 ## 1.6.1
 
 - Canon Photo Print: borderless photos keep the exact top/bottom compensation but cover the full width again, which tolerates a sheet sitting slightly off-centre (thin white strip on one side in 1.6.0).

@@ -83,6 +83,7 @@ def ppd_for(m, version):
             out.append(f'*cnivecMaint {op}.{t}: "{",".join(groups)}"\n')
     if m['duplex']:
         out.append('*cnivecRotateBack: "True"\n')
+    out.append('*cnivecBorderlessCover: "True"\n')
     if m.get('optimization'):
         out.append('*cnivecOptimization: "True"\n')
     if m['mono_only']:

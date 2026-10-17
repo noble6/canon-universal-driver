@@ -54,6 +54,7 @@ typedef struct {
     int optimization;
     int manual_duplex;        /* no duplex unit: guided manual 2-sided */
     int manual_back_turned;   /* PPD default of CNManualBack */
+    int borderless_cover;     /* fill the borderless print area completely */
     int base_res;             /* resolution the printable areas are given in */
     char quality_high[24], quality_draft[24], draft_media[256];
     char default_quality[24];
@@ -121,6 +122,7 @@ static int load_model(const char *path, model_t *m) {
             else if (!strcmp(key, "cnivecOptimization")) m->optimization = !strcasecmp(val, "True");
             else if (!strcmp(key, "cnivecManualDuplex")) m->manual_duplex = !strcasecmp(val, "True");
             else if (!strcmp(key, "DefaultCNManualBack")) m->manual_back_turned = !strcasecmp(val, "Turned");
+            else if (!strcmp(key, "cnivecBorderlessCover")) m->borderless_cover = !strcasecmp(val, "True");
             else if (!strcmp(key, "cnivecDraftMedia")) snprintf(m->draft_media, sizeof(m->draft_media), " %s ", val);
             else if (!strcmp(key, "DefaultResolution")) m->base_res = atoi(val);
             else if (!strcmp(key, "DefaultcupsPrintQuality")) snprintf(m->default_quality, sizeof(m->default_quality), "%s", val);
@@ -269,7 +271,8 @@ static cups_raster_t *open_pwg(membuf_t *b, const cups_page_header2_t *h, long w
 /* Render one page into a colour and/or a gray PWG stream.  *colorful is set
  * when any printed pixel is not neutral. */
 static int render_page(cups_raster_t *in, const cups_page_header2_t *h, const size_entry_t *size,
-                       int base_res, int out_res, int rotate, membuf_t *color, membuf_t *gray, int *colorful) {
+                       int base_res, int out_res, int cover, int rotate, membuf_t *color, membuf_t *gray,
+                       int *colorful) {
     if (h->cupsBitsPerColor != 8 || h->cupsColorOrder != CUPS_ORDER_CHUNKED ||
         (h->cupsNumColors != 3 && h->cupsNumColors != 1)) {
         fprintf(stderr, "ERROR: Unsupported raster format (%u bpc, %u colors)\n",
@@ -285,6 +288,17 @@ static int render_page(cups_raster_t *in, const cups_page_header2_t *h, const si
     hh.HWResolution[0] = hh.HWResolution[1] = out_res;
     h = &hh;
 
+    if (cover) {
+        /* Borderless: fill the whole print area (cropping the slight
+         * overflow) so no white sliver is left at its edges.  Canon's
+         * driver fits instead, which leaves ~0.5 mm unprinted at two edges;
+         * on a sheet sitting slightly off-centre that shows up as a strip. */
+        double k = (double)out_w / in_w > (double)out_h / in_h ? (double)out_w / in_w : (double)out_h / in_h;
+        dst_w = (long)(in_w * k + 0.5);
+        dst_h = (long)(in_h * k + 0.5);
+        ofs_w = (out_w - dst_w) / 2;
+        ofs_h = (out_h - dst_h) / 2;
+    } else
     /* fit inside the printable area, keep aspect, centre */
     if ((double)out_w / in_w < (double)out_h / in_h) {
         dst_w = out_w;
@@ -319,12 +333,12 @@ static int render_page(cups_raster_t *in, const cups_page_header2_t *h, const si
                 have++;
             }
             to_rgb(inl, rgb, in_w, h);
-            unsigned char *d = o + ofs_w * 3;
-            for (long x = 0; x < dst_w; x++) {
-                const unsigned char *s = rgb + src_index(x, in_w, dst_w) * 3;
-                d[3 * x] = s[0]; d[3 * x + 1] = s[1]; d[3 * x + 2] = s[2];
+            long x0 = ofs_w > 0 ? ofs_w : 0, x1 = ofs_w + dst_w < out_w ? ofs_w + dst_w : out_w;
+            for (long x = x0; x < x1; x++) {
+                const unsigned char *s = rgb + src_index(x - ofs_w, in_w, dst_w) * 3;
+                o[3 * x] = s[0]; o[3 * x + 1] = s[1]; o[3 * x + 2] = s[2];
             }
-            if (colorful && !*colorful) *colorful = has_color(d, dst_w);
+            if (colorful && !*colorful) *colorful = has_color(o + x0 * 3, x1 - x0);
         }
         if (rotate) continue;
         if (cr && cupsRasterWritePixels(cr, o, obpl) == 0) rc = -1;
@@ -444,6 +458,9 @@ int main(int argc, char *argv[]) {
     int npages = 0, cap = 0, colorful = 0, job_gray = 1, rc = 0, started = 0, draft = 0;
     int manual = 0, tumble = 0;
     const char *mb = cupsGetOption("CNManualBack", nopts, opts);
+    /* CNBorderlessCover=False restores Canon's fit (used by the comparison tests) */
+    const char *bc = cupsGetOption("CNBorderlessCover", nopts, opts);
+    int cover_ok = bc ? !strcasecmp(bc, "True") : m->borderless_cover;
     int back_turned = mb ? !strcasecmp(mb, "Turned") : m->manual_back_turned;
     ivec_page_config_t cfg = { 0 };
     cups_page_header2_t h;
@@ -505,7 +522,8 @@ int main(int argc, char *argv[]) {
         /* draft pages go at the rendered (lower) resolution, everything else
          * at the base resolution even if the dialog asked for draft */
         int out_res = draft ? (int)h.HWResolution[0] : m->base_res;
-        if (render_page(in, &h, size, m->base_res, out_res, rotate, want_color ? c : NULL, want_gray ? g : NULL,
+        if (render_page(in, &h, size, m->base_res, out_res, cover_ok && size->borderless, rotate,
+                        want_color ? c : NULL, want_gray ? g : NULL,
                         hold ? &colorful : NULL) != 0) {
             fprintf(stderr, "ERROR: Failed to convert page %d\n", npages);
             rc = 1;

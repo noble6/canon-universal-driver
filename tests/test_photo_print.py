@@ -33,6 +33,12 @@ with tempfile.TemporaryDirectory() as d:
         if box != want_box or pages != want_pages:
             print(f'FAIL photo print {page} x{count}: box {box} pages {pages} {r.stderr[-300:]}')
             ok = False
+    out = os.path.join(d, 'align.pdf')
+    r = subprocess.run([sys.executable, '-B', os.path.join(ROOT, 'scripts', 'canon-photo-print'), '--pdf', out, ppd,
+                        '4x6.bl', 'align'], capture_output=True, text=True)
+    if r.returncode != 0 or not os.path.getsize(out):
+        print('FAIL photo print alignment sheet', r.stderr[-300:])
+        ok = False
     if ok:
-        print('PASS photo print (borderless 4x6, 4 per A4)')
+        print('PASS photo print (borderless 4x6, 4 per A4, alignment sheet)')
     sys.exit(0 if ok else 1)
