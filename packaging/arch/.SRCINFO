@@ -1,6 +1,6 @@
 pkgbase = canon-ivec-driver
 	pkgdesc = Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets (G1010-G4010, G3020, GX, E, TS, TR, MG): printing, maintenance, paper-out alerts, guided 2-sided
-	pkgver = 1.3.0
+	pkgver = 1.4.0
 	pkgrel = 1
 	url = https://github.com/noble6/canon-universal-driver
 	install = canon-ivec-driver.install
@@ -19,14 +19,14 @@ pkgbase = canon-ivec-driver
 	depends = python
 	depends = libusb
 	optdepends = libnotify: paper-out and error notifications
-	optdepends = pyside6: picture guide for manual 2-sided printing (or python-gobject + gtk4)
+	optdepends = pyside6: Canon Photo Print app and the picture guide for manual 2-sided printing
 	optdepends = libreoffice: right-click printing of office documents
 	optdepends = system-config-printer: extra features in KDE printer settings
 	optdepends = sane: USB scanning via the pixma backend
 	optdepends = sane-airscan: network scanning (eSCL)
 	optdepends = simple-scan: scanning GUI
 	options = !debug
-	source = canon-ivec-driver-1.3.0.tar.gz::https://github.com/noble6/canon-universal-driver/archive/refs/tags/v1.3.0.tar.gz
-	sha256sums = 9942e8083b693270bb8a72e2ddaa91446bfb8e83a961ddcd6ff90c15f7aabaa4
+	source = canon-ivec-driver-1.4.0.tar.gz::https://github.com/noble6/canon-universal-driver/archive/refs/tags/v1.4.0.tar.gz
+	sha256sums = ff111847ecc8f10f93c77c207c87f882fd1dfb3bfaabf8d0f378be7fa9b4bda1
 
 pkgname = canon-ivec-driver
