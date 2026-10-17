@@ -78,7 +78,7 @@ jobs:
           Maintainer: noble6 <https://github.com/noble6>
           Depends: cups, cups-filters, ghostscript, python3, libcups2, libusb-1.0-0
           Recommends: libnotify-bin
-          Suggests: libreoffice, sane-utils, sane-airscan, simple-scan, python3-pyside6.qtsvgwidgets
+          Suggests: libreoffice, sane-utils, sane-airscan, simple-scan, python3-pyside6.qtwidgets, python3-pyside6.qtsvgwidgets
           Section: utils
           Priority: optional
           Homepage: https://github.com/noble6/canon-universal-driver

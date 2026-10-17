@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+
+- **Canon Photo Print** (`canon-photo-print`): photo printing app with live preview; borderless 4x6 / 5x7 / A4 and other sizes from the printer's own list, 1/2/4/6/9 photos per sheet, fill or fit, automatic rotation and EXIF orientation, photo paper and High quality by default. In the application menu, "Open With" and Dolphin's right-click "Print photos...".
+
 ## 1.3.0
 
 - Right-click **Print / Print 2-sided / Print in grayscale** in Dolphin (KDE service menu) via `canon-ivec-print`; office documents are converted with LibreOffice first.

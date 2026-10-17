@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Service
+Name=Print photos
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+MimeType=image/jpeg;image/png;image/tiff;image/webp;image/bmp;image/gif;image/heic;
+Actions=printPhotos;
+X-KDE-Priority=TopLevel
+Icon=document-print
+
+[Desktop Action printPhotos]
+Name=Print photos...
+Icon=document-print
+Exec=canon-photo-print %F

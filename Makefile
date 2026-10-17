@@ -44,6 +44,7 @@ check: all out/test_status
 	out/test_status
 	$(PYTHON) -B tests/test_notify.py
 	@$(PYTHON) -B tests/test_print_helper.py
+	@QT_QPA_PLATFORM=offscreen $(PYTHON) -B tests/test_photo_print.py
 	@$(PYTHON) -B scripts/canon-ivec-flip --svg out/flip.svg && grep -q '</svg>' out/flip.svg && echo "PASS flip diagram"
 	tests/run_tests.sh
 
@@ -58,6 +59,9 @@ install: all
 	install -Dm755 scripts/canon-ivec-notify "$(DESTDIR)$(BINDIR)/canon-ivec-notify"
 	install -Dm755 scripts/canon-ivec-flip "$(DESTDIR)$(BINDIR)/canon-ivec-flip"
 	install -Dm755 scripts/canon-ivec-print "$(DESTDIR)$(BINDIR)/canon-ivec-print"
+	install -Dm755 scripts/canon-photo-print "$(DESTDIR)$(BINDIR)/canon-photo-print"
+	install -Dm644 data/canon-photo-print.desktop "$(DESTDIR)$(PREFIX)/share/applications/canon-photo-print.desktop"
+	install -Dm644 data/canon-photo-print-menu.desktop "$(DESTDIR)$(PREFIX)/share/kio/servicemenus/canon-photo-print.desktop"
 	# right-click "Print" in Dolphin (KDE)
 	install -Dm644 data/canon-ivec-print.desktop "$(DESTDIR)$(PREFIX)/share/kio/servicemenus/canon-ivec-print.desktop"
 	install -Dm644 data/canon-ivec.tmpfiles "$(DESTDIR)$(PREFIX)/lib/tmpfiles.d/canon-ivec.conf"
@@ -72,6 +76,8 @@ uninstall:
 	rm -rf "$(DESTDIR)$(PPDDIR)" "$(DESTDIR)$(DOCDIR)"
 	rm -f "$(DESTDIR)$(BINDIR)/canonctl" "$(DESTDIR)$(BINDIR)/canon-ivec-notify" "$(DESTDIR)$(BINDIR)/canon-ivec-flip"
 	rm -f "$(DESTDIR)$(BINDIR)/canon-ivec-print" "$(DESTDIR)$(PREFIX)/share/kio/servicemenus/canon-ivec-print.desktop"
+	rm -f "$(DESTDIR)$(BINDIR)/canon-photo-print" "$(DESTDIR)$(PREFIX)/share/applications/canon-photo-print.desktop"
+	rm -f "$(DESTDIR)$(PREFIX)/share/kio/servicemenus/canon-photo-print.desktop"
 	rm -f "$(DESTDIR)$(SYSCONFDIR)/xdg/autostart/canon-ivec-notify.desktop"
 	rm -f "$(DESTDIR)$(UDEVDIR)/rules.d/71-canon-ivec.rules"
 	rm -f "$(DESTDIR)$(PREFIX)/lib/tmpfiles.d/canon-ivec.conf"

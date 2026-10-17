@@ -17,6 +17,7 @@ If you kept a Windows partition only because your Canon printer or its maintenan
 - **Paper-out, jam and cover-open alerts** as desktop notifications, like the Windows status monitor, and a **Cancel** that really stops the printer (the stock CUPS USB backend cannot do that with Canon printers).
 - **2-sided printing on printers without a duplex unit**: the front sides print, a window shows a picture of how to put the stack back, and Continue prints the backs (verified on a G3010).
 - **Print quality** Draft / Normal / High in every print dialog.
+- **Canon Photo Print**, a photo printing app like Canon's Photo Garden: borderless 4x6 / 5x7 / A4, several photos per sheet, photo paper and High quality set up for you, with a live preview.
 - **Right-click Print** in Dolphin (KDE) for PDFs, images, text and office documents, including 2-sided and grayscale.
 - **Works everywhere printing works:** LibreOffice, Firefox, Chrome, GTK and Qt apps, and the `lp` command line all see the printer and its options.
 
@@ -80,6 +81,10 @@ Print from any application. Useful options:
 | 2-sided | every print dialog | Long edge, Short edge. Models without a duplex unit (G3010 and other ink-tank models) get guided manual 2-sided printing: the front sides print, a window shows a picture of how to put the stack back (blank side facing you, TOP edge in first), and **Continue** prints the backs (or run `canonctl continue`). |
 
 From the shell: `lp -o PageSize=4x6.bl -o MediaType=glossygold photo.jpg`, or list options with `lpoptions -l`.
+
+### Printing photos
+
+Open **Canon Photo Print** from the application menu, or right-click photos in Dolphin and choose **Print photos...** (it is also listed under "Open With" in image viewers). Add or drag in photos, pick the paper size and layout (1, 2, 4, 6 or 9 per sheet), and press Print. For 4x6, 5x7 and similar sizes it picks borderless, photo paper and High quality automatically; photos are rotated to fill the sheet best, and **Fit whole photo** avoids cropping. From a terminal: `canon-photo-print *.jpg`.
 
 ### Right-click printing
 

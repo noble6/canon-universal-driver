@@ -1,0 +1,451 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Canon Photo Print: lay out and print photos (4x6, 5x7, borderless, several per sheet).
+
+    canon-photo-print [PHOTO...]
+
+Reads the paper sizes and paper types of the chosen printer from CUPS,
+builds the sheets as a PDF at the exact page size, and prints with
+photo-friendly settings (photo paper, High quality, borderless where the
+printer supports it).  Needs PySide6.
+"""
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import urllib.parse
+import urllib.request
+
+try:
+    from PySide6.QtCore import QMarginsF, QRectF, QSize, QSizeF, Qt
+    from PySide6.QtGui import (QColor, QIcon, QImage, QImageReader, QPageLayout, QPageSize, QPainter,
+                               QPdfWriter, QPixmap)
+    from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
+                                   QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+                                   QPushButton, QSpinBox, QVBoxLayout, QWidget)
+except ImportError:
+    sys.exit('canon-photo-print needs PySide6 (Arch: sudo pacman -S pyside6, Debian: python3-pyside6.*)')
+
+IMAGE_FILTER = 'Photos (*.jpg *.jpeg *.png *.tif *.tiff *.webp *.bmp *.gif *.heic)'
+LAYOUTS = [(1, 1, 1), (2, 1, 2), (4, 2, 2), (6, 2, 3), (9, 3, 3)]   # count, columns, rows
+GAP = 6.0          # points between photos on multi-photo sheets
+PHOTO_HINT = ('photo', 'glossy', 'luster', 'matte', 'semigloss', 'pro', 'plus')
+
+
+# ---- printer information ----
+
+def printers():
+    out = subprocess.run(['lpstat', '-e'], capture_output=True, text=True).stdout.split()
+    d = subprocess.run(['lpstat', '-d'], capture_output=True, text=True).stdout
+    default = d.split(':', 1)[1].strip() if ':' in d else None
+    return out, default
+
+
+def printer_ppd(queue):
+    """Paper sizes and types from the queue's PPD, which CUPS serves locally."""
+    try:
+        if os.path.isfile(queue):          # a PPD file (tests, offline use)
+            text = open(queue, encoding='latin-1').read()
+        else:
+            url = f'http://localhost:631/printers/{urllib.parse.quote(queue)}.ppd'
+            text = urllib.request.urlopen(url, timeout=5).read().decode('latin-1')
+    except OSError:
+        return None
+    sizes, area, media = {}, {}, []
+    default_media = None
+    for line in text.splitlines():
+        if re.match(r'\*[a-z]{2}(_[A-Z]{2})?\.', line):
+            continue
+        m = re.match(r'\*PageSize ([^/:]+)/([^:]+): ".*PageSize\s*\[\s*([\d.]+)\s+([\d.]+)\s*\]', line)
+        if m:
+            sizes[m.group(1)] = {'name': m.group(1), 'label': m.group(2).strip(),
+                                 'w': float(m.group(3)), 'h': float(m.group(4))}
+        m = re.match(r'\*ImageableArea ([^:]+): "([^"]+)"', line)
+        if m:
+            area[m.group(1)] = [float(v) for v in m.group(2).split()]
+        m = re.match(r'\*MediaType ([^/:]+)/([^:]+):', line)
+        if m:
+            media.append((m.group(1), m.group(2).strip()))
+        m = re.match(r'\*DefaultMediaType: (\S+)', line)
+        if m:
+            default_media = m.group(1)
+    for k, s in sizes.items():
+        s['area'] = area.get(k, [0, 0, s['w'], s['h']])
+    qualities = re.findall(r'^\*cupsPrintQuality (\w+)/', text, re.M)
+    return {'sizes': sizes, 'media': media, 'default_media': default_media, 'qualities': qualities}
+
+
+def base_sizes(sizes):
+    """Paper choices without the .bl duplicates; photo sizes first."""
+    names = [n for n in sizes if not n.endswith('.bl')]
+    def key(n):
+        s = sizes[n]
+        return (0 if max(s['w'], s['h']) <= 600 else 1, s['w'] * s['h'])
+    return sorted(names, key=key)
+
+
+# ---- layout and rendering ----
+
+def load_image(path):
+    r = QImageReader(path)
+    r.setAutoTransform(True)        # respect EXIF orientation from phones and cameras
+    img = r.read()
+    return img if not img.isNull() else None
+
+
+def cells(size, borderless, count, cols, rows):
+    """Photo rectangles (points, top-left origin) on a portrait sheet."""
+    w, h = size['w'], size['h']
+    if borderless:
+        x0, y0, x1, y1 = 0.0, 0.0, w, h
+    else:
+        l, b, r, t = size['area']
+        x0, y0, x1, y1 = l, h - t, r, h - b
+    gap = 0.0 if count == 1 else GAP
+    cw = (x1 - x0 - gap * (cols - 1)) / cols
+    ch = (y1 - y0 - gap * (rows - 1)) / rows
+    return [QRectF(x0 + c * (cw + gap), y0 + r * (ch + gap), cw, ch) for r in range(rows) for c in range(cols)]
+
+
+def draw_photo(p, img, rect, fill):
+    """Draw img into rect, rotating it when that fits the cell better."""
+    landscape_img = img.width() > img.height()
+    landscape_cell = rect.width() > rect.height()
+    p.save()
+    if landscape_img != landscape_cell:
+        p.translate(rect.center())
+        p.rotate(90)
+        rect = QRectF(-rect.height() / 2, -rect.width() / 2, rect.height(), rect.width())
+    sx, sy = rect.width() / img.width(), rect.height() / img.height()
+    s = max(sx, sy) if fill else min(sx, sy)
+    dw, dh = img.width() * s, img.height() * s
+    target = QRectF(rect.center().x() - dw / 2, rect.center().y() - dh / 2, dw, dh)
+    p.setClipRect(rect)
+    p.drawImage(target, img)
+    p.restore()
+
+
+def render_sheets(paint_page, photos, size, borderless, layout, fill, copies_each=1, only=None):
+    """Calls paint_page(index) -> QPainter for each sheet (or just sheet
+    `only`) and draws it.  Returns the number of sheets."""
+    count, cols, rows = layout
+    seq = [ph for ph in photos for _ in range(copies_each)]
+    pages = [seq[i:i + count] for i in range(0, len(seq), count)]
+    for i, page in enumerate(pages):
+        if only is not None and i != only:
+            continue
+        p = paint_page(i)
+        for img_path, rect in zip(page, cells(size, borderless, count, cols, rows)):
+            img = load_image(img_path)
+            if img:
+                draw_photo(p, img, rect, fill)
+    return len(pages)
+
+
+def write_pdf(path, photos, size, borderless, layout, fill, copies_each):
+    pdf = QPdfWriter(path)
+    pdf.setResolution(300)
+    pdf.setPageLayout(QPageLayout(QPageSize(QSizeF(size['w'], size['h']), QPageSize.Point, 'photo'),
+                                  QPageLayout.Portrait, QMarginsF(0, 0, 0, 0)))
+    painter = QPainter()
+    scale = 300 / 72.0
+
+    def page(i):
+        if i == 0:
+            painter.begin(pdf)
+        else:
+            pdf.newPage()
+        painter.resetTransform()
+        painter.scale(scale, scale)
+        return painter
+
+    n = render_sheets(page, photos, size, borderless, layout, fill, copies_each)
+    if painter.isActive():
+        painter.end()
+    return n
+
+
+def preview_image(photos, size, borderless, layout, fill, copies_each, page_no, max_px):
+    scale = max_px / max(size['w'], size['h'])
+    img = QImage(int(size['w'] * scale), int(size['h'] * scale), QImage.Format_RGB32)
+    img.fill(QColor('white'))
+    q = QPainter(img)
+    q.setRenderHint(QPainter.SmoothPixmapTransform)
+    q.scale(scale, scale)
+    pages = render_sheets(lambda i: q, photos, size, borderless, layout, fill, copies_each, only=page_no)
+    if not borderless:   # show the unprintable margin
+        q.setPen(QColor('#d0d0d0'))
+        l, b, r, t = size['area']
+        q.drawRect(QRectF(l, size['h'] - t, r - l, t - b))
+    q.end()
+    return img, pages
+
+
+# ---- window ----
+
+class PhotoPrint(QMainWindow):
+    def __init__(self, files):
+        super().__init__()
+        self.setWindowTitle('Canon Photo Print')
+        self.setWindowIcon(QIcon.fromTheme('document-print'))
+        self.setAcceptDrops(True)
+        self.info = None
+        self.page_no = 0
+
+        root = QWidget()
+        lay = QHBoxLayout(root)
+
+        left = QVBoxLayout()
+        self.list = QListWidget()
+        self.list.setIconSize(QSize(96, 96))
+        self.list.setMinimumWidth(240)
+        left.addWidget(QLabel('Photos (drag files here)'))
+        left.addWidget(self.list)
+        row = QHBoxLayout()
+        add, rem = QPushButton('Add photos...'), QPushButton('Remove')
+        add.clicked.connect(self.add_dialog)
+        rem.clicked.connect(self.remove_selected)
+        row.addWidget(add)
+        row.addWidget(rem)
+        left.addLayout(row)
+        lay.addLayout(left)
+
+        mid = QVBoxLayout()
+        self.preview = QLabel()
+        self.preview.setAlignment(Qt.AlignCenter)
+        self.preview.setMinimumSize(420, 520)
+        self.preview.setStyleSheet('background: #5f6368; border-radius: 6px;')
+        mid.addWidget(self.preview, 1)
+        nav = QHBoxLayout()
+        self.prev_btn, self.next_btn = QPushButton('<'), QPushButton('>')
+        self.page_lbl = QLabel()
+        self.prev_btn.clicked.connect(lambda: self.turn(-1))
+        self.next_btn.clicked.connect(lambda: self.turn(1))
+        nav.addWidget(self.prev_btn)
+        nav.addWidget(self.page_lbl, 1, Qt.AlignCenter)
+        nav.addWidget(self.next_btn)
+        mid.addLayout(nav)
+        lay.addLayout(mid, 1)
+
+        form = QFormLayout()
+        self.printer = QComboBox()
+        self.paper = QComboBox()
+        self.borderless = QCheckBox('Borderless')
+        self.layout_box = QComboBox()
+        for count, cols, rows in LAYOUTS:
+            self.layout_box.addItem('1 photo per sheet' if count == 1 else f'{count} photos per sheet ({cols} x {rows})',
+                                    (count, cols, rows))
+        self.fill = QComboBox()
+        self.fill.addItem('Fill (crop edges)', True)
+        self.fill.addItem('Fit whole photo', False)
+        self.media = QComboBox()
+        self.quality = QComboBox()
+        self.each = QSpinBox()
+        self.each.setRange(1, 99)
+        self.copies = QSpinBox()
+        self.copies.setRange(1, 99)
+        form.addRow('Printer', self.printer)
+        form.addRow('Paper size', self.paper)
+        form.addRow('', self.borderless)
+        form.addRow('Layout', self.layout_box)
+        form.addRow('Photo', self.fill)
+        form.addRow('Paper type', self.media)
+        form.addRow('Quality', self.quality)
+        form.addRow('Prints of each photo', self.each)
+        form.addRow('Copies of the whole job', self.copies)
+        self.print_btn = QPushButton('Print')
+        self.print_btn.setDefault(True)
+        self.print_btn.setMinimumHeight(40)
+        self.print_btn.clicked.connect(self.do_print)
+        side = QVBoxLayout()
+        side.addLayout(form)
+        side.addStretch(1)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        side.addWidget(self.status)
+        side.addWidget(self.print_btn)
+        lay.addLayout(side)
+        self.setCentralWidget(root)
+
+        queues, default = printers()
+        self.printer.addItems(queues)
+        if default in queues:
+            self.printer.setCurrentText(default)
+        self.printer.currentTextChanged.connect(self.load_printer)
+        for w in (self.paper, self.layout_box, self.fill, self.media, self.quality):
+            w.currentIndexChanged.connect(self.refresh)
+        self.borderless.toggled.connect(self.borderless_changed)
+        self.each.valueChanged.connect(self.refresh)
+        self.paper.currentIndexChanged.connect(self.paper_changed)
+        self.layout_box.currentIndexChanged.connect(self.paper_changed)
+        self.load_printer(self.printer.currentText())
+        self.add_files(files)
+
+    # photos
+    def add_files(self, files):
+        for f in files:
+            if os.path.isfile(f) and load_image(f) is not None:
+                item = QListWidgetItem(QIcon(QPixmap.fromImage(load_image(f).scaled(
+                    96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation))), os.path.basename(f))
+                item.setData(Qt.UserRole, f)
+                self.list.addItem(item)
+        self.refresh()
+
+    def photos(self):
+        return [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())]
+
+    def add_dialog(self):
+        files, _ = QFileDialog.getOpenFileNames(self, 'Add photos', os.path.expanduser('~/Pictures'), IMAGE_FILTER)
+        self.add_files(files)
+
+    def remove_selected(self):
+        for item in self.list.selectedItems():
+            self.list.takeItem(self.list.row(item))
+        self.refresh()
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        self.add_files([u.toLocalFile() for u in e.mimeData().urls()])
+
+    # printer settings
+    def load_printer(self, queue):
+        self.info = printer_ppd(queue) if queue else None
+        for w in (self.paper, self.media, self.quality):
+            w.blockSignals(True)
+            w.clear()
+        if not self.info or not self.info['sizes']:
+            self.status.setText('Could not read the printer settings. Is the printer set up (canonctl setup)?')
+        else:
+            sizes = self.info['sizes']
+            for n in base_sizes(sizes):
+                label = re.sub(r'\s*\[.*\]', '', sizes[n]['label']).replace("'", '"')
+                self.paper.addItem(label, n)
+            i = self.paper.findData('4x6')
+            self.paper.setCurrentIndex(max(i, 0))
+            for name, label in self.info['media']:
+                self.media.addItem(label, name)
+            for q in self.info['qualities'] or ['Normal']:
+                self.quality.addItem(q, q)
+            self.quality.setCurrentText('High' if 'High' in self.info['qualities'] else self.quality.itemText(0))
+            self.status.setText('')
+        for w in (self.paper, self.media, self.quality):
+            w.blockSignals(False)
+        self.paper_changed()
+
+    def size(self):
+        if not self.info:
+            return None
+        name = self.paper.currentData()
+        if self.borderless.isChecked() and f'{name}.bl' in self.info['sizes']:
+            name = f'{name}.bl'
+        return self.info['sizes'].get(name)
+
+    def paper_changed(self):
+        if not self.info:
+            return self.refresh()
+        name = self.paper.currentData()
+        can_bl = bool(name) and f'{name}.bl' in self.info['sizes']
+        single = (self.layout_box.currentData() or (1,))[0] == 1
+        self.borderless.blockSignals(True)
+        self.borderless.setEnabled(can_bl and single)
+        self.borderless.setChecked(can_bl and single and self.borderless.isChecked() or
+                                   (can_bl and single and name in ('4x6', '5x7in', 'l', 'Postcard', '8x10')))
+        self.borderless.blockSignals(False)
+        self.borderless_changed()
+
+    def borderless_changed(self):
+        # Canon only allows borderless on photo papers: switch to one
+        if self.info and (self.borderless.isChecked() or (self.paper.currentData() or '') in ('4x6', '5x7in', 'l')):
+            cur = self.media.currentData() or ''
+            if not any(h in cur.lower() for h in PHOTO_HINT):
+                for i in range(self.media.count()):
+                    if any(h in (self.media.itemData(i) or '').lower() for h in PHOTO_HINT[:2]):
+                        self.media.setCurrentIndex(i)
+                        break
+        self.refresh()
+
+    # preview
+    def refresh(self, *_):
+        size, photos = self.size(), self.photos()
+        if not size or not photos:
+            self.preview.setText('Add photos to see a preview' if size else '')
+            self.page_lbl.setText('')
+            self.print_btn.setEnabled(False)
+            return
+        img, pages = preview_image(photos, size, self.size()['name'].endswith('.bl'),
+                                   self.layout_box.currentData(), self.fill.currentData(), self.each.value(),
+                                   min(self.page_no, 10 ** 6), 900)
+        if self.page_no >= pages:
+            self.page_no = pages - 1
+            return self.refresh()
+        pix = QPixmap.fromImage(img).scaled(self.preview.size() - QSize(24, 24), Qt.KeepAspectRatio,
+                                            Qt.SmoothTransformation)
+        self.preview.setPixmap(pix)
+        self.page_lbl.setText(f'Sheet {self.page_no + 1} of {pages}')
+        self.prev_btn.setEnabled(self.page_no > 0)
+        self.next_btn.setEnabled(self.page_no < pages - 1)
+        self.print_btn.setEnabled(True)
+        self.print_btn.setText(f'Print {pages * self.copies.value()} sheet' + ('s' if pages * self.copies.value() > 1 else ''))
+
+    def turn(self, d):
+        self.page_no = max(0, self.page_no + d)
+        self.refresh()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.refresh()
+
+    # print
+    def do_print(self):
+        size, photos = self.size(), self.photos()
+        queue = self.printer.currentText()
+        fd, pdf = tempfile.mkstemp(suffix='.pdf', prefix='canon-photo-')
+        os.close(fd)
+        try:
+            pages = write_pdf(pdf, photos, size, size['name'].endswith('.bl'), self.layout_box.currentData(),
+                              self.fill.currentData(), self.each.value())
+            cmd = ['lp', '-d', queue, '-t', f'Photos ({len(photos)})', '-n', str(self.copies.value()),
+                   '-o', f'PageSize={size["name"]}', '-o', 'ColorModel=RGB', '-o', 'print-color-mode=color']
+            if self.media.currentData():
+                cmd += ['-o', f'MediaType={self.media.currentData()}']
+            if self.quality.currentData() and self.quality.currentData() != 'Normal':
+                cmd += ['-o', f'cupsPrintQuality={self.quality.currentData()}']
+            r = subprocess.run(cmd + [pdf], capture_output=True, text=True)
+            if r.returncode:
+                raise RuntimeError(r.stderr.strip())
+            self.status.setText(f'Sent {pages} sheet(s) to {queue}. Load {self.media.currentText()} '
+                                f'({self.paper.currentText()}) in the rear tray.')
+        except Exception as e:
+            QMessageBox.critical(self, 'Print failed', str(e))
+        finally:
+            # CUPS has its own copy once lp returns
+            os.unlink(pdf)
+
+
+def main():
+    if '--pdf' in sys.argv:
+        # canon-photo-print --pdf OUT QUEUE PAGESIZE LAYOUT(1|2|4|6|9) PHOTO... (for tests)
+        i = sys.argv.index('--pdf')
+        out, queue, page, count = sys.argv[i + 1:i + 5]
+        photos = sys.argv[i + 5:]
+        app = QApplication.instance() or QApplication(sys.argv[:1])
+        info = printer_ppd(queue)
+        layout = next(l for l in LAYOUTS if l[0] == int(count))
+        n = write_pdf(out, photos, info['sizes'][page], page.endswith('.bl'), layout, True, 1)
+        print(f'{n} sheet(s) -> {out}')
+        return 0
+    app = QApplication(sys.argv)
+    app.setApplicationName('Canon Photo Print')
+    app.setDesktopFileName('canon-photo-print')
+    w = PhotoPrint([a for a in sys.argv[1:] if not a.startswith('-')])
+    w.resize(1180, 720)
+    w.show()
+    return app.exec()
+
+
+if __name__ == '__main__':
+    sys.exit(main())

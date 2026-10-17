@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Canon Photo Print
+GenericName=Photo Printing
+Comment=Print photos borderless or several per sheet (4x6, 5x7, A4 ...)
+Exec=canon-photo-print %F
+Icon=document-print
+Terminal=false
+Categories=Graphics;Photography;Printing;
+MimeType=image/jpeg;image/png;image/tiff;image/webp;image/bmp;image/gif;image/heic;
+Keywords=print;photo;canon;borderless;pixma;
