@@ -21,7 +21,7 @@ optdepends=('libnotify: paper-out and error notifications'
             'simple-scan: scanning GUI')
 install=canon-ivec-driver.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('fd0b6ced72f4a046af1fa1d106c87660c0a8d6270b726e4093729603a934f1bd')
+sha256sums=('580c0e61e3207bedb81b8fcac4dec7dbdf0643beaf5f52ef8f52fabf2cbedf4a')
 
 build() {
   cd "canon-universal-driver-$pkgver"
