@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0
+
+- Canon Photo Print: **Color** panel (brightness, contrast, saturation, cyan / magenta / yellow balance) with live preview; faster preview for large photos.
+- `canonctl clean|deep-clean|flush` accept `black` and `color` like the Windows tools (Canon ink groups 1 and 2).
+
 ## 1.4.0
 
 - **Canon Photo Print** (`canon-photo-print`): photo printing app with live preview; borderless 4x6 / 5x7 / A4 and other sizes from the printer's own list, 1/2/4/6/9 photos per sheet, fill or fit, automatic rotation and EXIF orientation, photo paper and High quality by default. In the application menu, "Open With" and Dolphin's right-click "Print photos...".

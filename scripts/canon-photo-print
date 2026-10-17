@@ -16,14 +16,20 @@ import sys
 import tempfile
 import urllib.parse
 import urllib.request
+from functools import lru_cache
 
 try:
-    from PySide6.QtCore import QMarginsF, QRectF, QSize, QSizeF, Qt
+    import numpy as np          # colour adjustments; optional
+except ImportError:
+    np = None
+
+try:
+    from PySide6.QtCore import QMarginsF, QRectF, QSize, QSizeF, Qt, QTimer
     from PySide6.QtGui import (QColor, QIcon, QImage, QImageReader, QPageLayout, QPageSize, QPainter,
                                QPdfWriter, QPixmap)
     from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
                                    QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-                                   QPushButton, QSpinBox, QVBoxLayout, QWidget)
+                                   QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget, QGroupBox)
 except ImportError:
     sys.exit('canon-photo-print needs PySide6 (Arch: sudo pacman -S pyside6, Debian: python3-pyside6.*)')
 
@@ -94,6 +100,41 @@ def load_image(path):
     return img if not img.isNull() else None
 
 
+@lru_cache(maxsize=64)
+def preview_source(path):
+    """Downscaled copy for the on-screen preview."""
+    img = load_image(path)
+    if img is not None and max(img.width(), img.height()) > 1400:
+        img = img.scaled(1400, 1400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    return img
+
+
+ADJUST_KEYS = ('brightness', 'contrast', 'saturation', 'cyan', 'magenta', 'yellow')
+
+
+def adjust(img, a):
+    """Colour adjustment, sliders -50..50.  Cyan/magenta/yellow work like a
+    printer's colour balance: more cyan takes red out, more magenta takes
+    green out, more yellow takes blue out."""
+    if img is None or np is None or not a or not any(a.values()):
+        return img
+    img = img.convertToFormat(QImage.Format_RGB888)
+    w, h, bpl = img.width(), img.height(), img.bytesPerLine()
+    arr = np.frombuffer(img.constBits(), np.uint8, count=bpl * h).reshape(h, bpl)[:, :w * 3]
+    arr = arr.reshape(h, w, 3).astype(np.float32)
+    for ch, key in enumerate(('cyan', 'magenta', 'yellow')):
+        arr[..., ch] *= 1.0 - a[key] / 200.0
+    if a['saturation']:
+        lum = arr @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+        arr = lum[..., None] + (arr - lum[..., None]) * (1.0 + a['saturation'] / 50.0)
+    if a['contrast']:
+        arr = (arr - 128.0) * (1.0 + a['contrast'] / 50.0) + 128.0
+    if a['brightness']:
+        arr += a['brightness'] * 1.5
+    out = np.ascontiguousarray(np.clip(arr, 0, 255).astype(np.uint8))
+    return QImage(out.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+
+
 def cells(size, borderless, count, cols, rows):
     """Photo rectangles (points, top-left origin) on a portrait sheet."""
     w, h = size['w'], size['h']
@@ -126,7 +167,8 @@ def draw_photo(p, img, rect, fill):
     p.restore()
 
 
-def render_sheets(paint_page, photos, size, borderless, layout, fill, copies_each=1, only=None):
+def render_sheets(paint_page, photos, size, borderless, layout, fill, copies_each=1, only=None,
+                  adj=None, preview=False):
     """Calls paint_page(index) -> QPainter for each sheet (or just sheet
     `only`) and draws it.  Returns the number of sheets."""
     count, cols, rows = layout
@@ -137,13 +179,13 @@ def render_sheets(paint_page, photos, size, borderless, layout, fill, copies_eac
             continue
         p = paint_page(i)
         for img_path, rect in zip(page, cells(size, borderless, count, cols, rows)):
-            img = load_image(img_path)
+            img = adjust(preview_source(img_path) if preview else load_image(img_path), adj)
             if img:
                 draw_photo(p, img, rect, fill)
     return len(pages)
 
 
-def write_pdf(path, photos, size, borderless, layout, fill, copies_each):
+def write_pdf(path, photos, size, borderless, layout, fill, copies_each, adj=None):
     pdf = QPdfWriter(path)
     pdf.setResolution(300)
     pdf.setPageLayout(QPageLayout(QPageSize(QSizeF(size['w'], size['h']), QPageSize.Point, 'photo'),
@@ -160,20 +202,21 @@ def write_pdf(path, photos, size, borderless, layout, fill, copies_each):
         painter.scale(scale, scale)
         return painter
 
-    n = render_sheets(page, photos, size, borderless, layout, fill, copies_each)
+    n = render_sheets(page, photos, size, borderless, layout, fill, copies_each, adj=adj)
     if painter.isActive():
         painter.end()
     return n
 
 
-def preview_image(photos, size, borderless, layout, fill, copies_each, page_no, max_px):
+def preview_image(photos, size, borderless, layout, fill, copies_each, page_no, max_px, adj=None):
     scale = max_px / max(size['w'], size['h'])
     img = QImage(int(size['w'] * scale), int(size['h'] * scale), QImage.Format_RGB32)
     img.fill(QColor('white'))
     q = QPainter(img)
     q.setRenderHint(QPainter.SmoothPixmapTransform)
     q.scale(scale, scale)
-    pages = render_sheets(lambda i: q, photos, size, borderless, layout, fill, copies_each, only=page_no)
+    pages = render_sheets(lambda i: q, photos, size, borderless, layout, fill, copies_each, only=page_no,
+                          adj=adj, preview=True)
     if not borderless:   # show the unprintable margin
         q.setPen(QColor('#d0d0d0'))
         l, b, r, t = size['area']
@@ -254,12 +297,35 @@ class PhotoPrint(QMainWindow):
         form.addRow('Quality', self.quality)
         form.addRow('Prints of each photo', self.each)
         form.addRow('Copies of the whole job', self.copies)
+        self.sliders = {}
+        color = QGroupBox('Color')
+        cform = QFormLayout(color)
+        labels = {'brightness': 'Brightness', 'contrast': 'Contrast', 'saturation': 'Saturation',
+                  'cyan': 'Red  <>  Cyan', 'magenta': 'Green  <>  Magenta', 'yellow': 'Blue  <>  Yellow'}
+        self.adj_timer = QTimer(self, singleShot=True, interval=120)
+        self.adj_timer.timeout.connect(self.refresh)
+        for key in ADJUST_KEYS:
+            sl = QSlider(Qt.Horizontal)
+            sl.setRange(-50, 50)
+            sl.setTickInterval(25)
+            sl.setTickPosition(QSlider.TicksBelow)
+            sl.valueChanged.connect(lambda _v: self.adj_timer.start())
+            sl.setEnabled(np is not None)
+            cform.addRow(labels[key], sl)
+            self.sliders[key] = sl
+        reset = QPushButton('Reset colors')
+        reset.clicked.connect(lambda: [sl.setValue(0) for sl in self.sliders.values()])
+        reset.setEnabled(np is not None)
+        cform.addRow('', reset)
+        if np is None:
+            cform.addRow(QLabel('Install numpy (python-numpy) for color adjustment.'))
         self.print_btn = QPushButton('Print')
         self.print_btn.setDefault(True)
         self.print_btn.setMinimumHeight(40)
         self.print_btn.clicked.connect(self.do_print)
         side = QVBoxLayout()
         side.addLayout(form)
+        side.addWidget(color)
         side.addStretch(1)
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -368,6 +434,9 @@ class PhotoPrint(QMainWindow):
                         break
         self.refresh()
 
+    def adjustments(self):
+        return {k: sl.value() for k, sl in self.sliders.items()}
+
     # preview
     def refresh(self, *_):
         size, photos = self.size(), self.photos()
@@ -378,7 +447,7 @@ class PhotoPrint(QMainWindow):
             return
         img, pages = preview_image(photos, size, self.size()['name'].endswith('.bl'),
                                    self.layout_box.currentData(), self.fill.currentData(), self.each.value(),
-                                   min(self.page_no, 10 ** 6), 900)
+                                   min(self.page_no, 10 ** 6), 900, self.adjustments())
         if self.page_no >= pages:
             self.page_no = pages - 1
             return self.refresh()
@@ -407,7 +476,7 @@ class PhotoPrint(QMainWindow):
         os.close(fd)
         try:
             pages = write_pdf(pdf, photos, size, size['name'].endswith('.bl'), self.layout_box.currentData(),
-                              self.fill.currentData(), self.each.value())
+                              self.fill.currentData(), self.each.value(), self.adjustments())
             cmd = ['lp', '-d', queue, '-t', f'Photos ({len(photos)})', '-n', str(self.copies.value()),
                    '-o', f'PageSize={size["name"]}', '-o', 'ColorModel=RGB', '-o', 'print-color-mode=color']
             if self.media.currentData():

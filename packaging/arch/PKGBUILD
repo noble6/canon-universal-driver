@@ -1,7 +1,7 @@
 # Maintainer: noble6 <https://github.com/noble6>
 # AUR / release package: builds the tagged release from GitHub.
 pkgname=canon-ivec-driver
-pkgver=1.4.0
+pkgver=1.5.0
 pkgrel=1
 pkgdesc="Open-source CUPS driver for Canon PIXMA/MAXIFY inkjets (G1010-G4010, G3020, GX, E, TS, TR, MG): printing, maintenance, paper-out alerts, guided 2-sided"
 arch=('x86_64' 'aarch64' 'armv7h' 'i686')
@@ -12,6 +12,7 @@ depends=('cups' 'cups-filters' 'ghostscript' 'python' 'libusb')
 makedepends=('gcc' 'make')
 checkdepends=('ghostscript' 'cups')
 optdepends=('libnotify: paper-out and error notifications'
+            'python-numpy: color adjustment in Canon Photo Print'
             'pyside6: Canon Photo Print app and the picture guide for manual 2-sided printing'
             'libreoffice: right-click printing of office documents'
             'system-config-printer: extra features in KDE printer settings'

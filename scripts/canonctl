@@ -26,18 +26,20 @@ Setup
                             (run with sudo; useful for bug reports)
 
 Maintenance (queue defaults to the default printer; USB/IVEC queues only)
-  nozzle [Q]                print a nozzle check pattern
-  clean [Q] [all|group1|group2]   regular print head cleaning
-  deep-clean [Q] [all|group1]     deep cleaning (uses more ink)
-  flush [Q] [all|group1|group2]   ink flush / system cleaning (uses a LOT of ink)
-  align [Q]                 print head alignment
-  roller [Q]                paper feed roller cleaning
-  platen [Q]                bottom plate cleaning
-  status [Q]                queue state, last job messages, ink levels (IPP)
-  continue                  print the back sides of a manual 2-sided job
-                            after turning the stack over
+  nozzle [Q]                    print a nozzle check pattern
+  clean [Q] [all|black|color]   regular print head cleaning
+  deep-clean [Q] [all|black]    deep cleaning (uses more ink)
+  flush [Q] [all|black|color]   ink flush / system cleaning (uses a LOT of ink)
+  align [Q]                     print head alignment
+  roller [Q]                    paper feed roller cleaning
+  platen [Q]                    bottom plate cleaning
+  status [Q]                    queue state, last job messages, ink levels (IPP)
+  continue                      print the back sides of a manual 2-sided job
+                                after turning the stack over
 
-Ink groups: group1 is usually black (pigment), group2 the colours.
+Ink groups: "all" = every ink (default), "black" = black only, "color" = the
+colour inks (Canon calls them group1 and group2). What each model allows is
+checked against its capabilities; the G3010 deep-cleans "all" or "black".
 EOF
 }
 
@@ -167,8 +169,12 @@ send_command() {
 
 maint() {
     local cmd=$1 q=${2:-} arg=${3:-}
-    # allow "canonctl clean group1" without a queue
-    if [ -n "$q" ] && ! is_queue "$q" && [[ $q == all || $q == group* ]]; then arg=$q; q=""; fi
+    # allow "canonctl clean black" without a queue
+    if [ -n "$q" ] && ! is_queue "$q" && [[ $q =~ ^(all|black|colou?r|group[12])$ ]]; then arg=$q; q=""; fi
+    case $arg in
+        black) arg=group1 ;;
+        color|colour) arg=group2 ;;
+    esac
     [ -n "$q" ] || q=$(default_queue)
     case $cmd in
         clean)      if [ -z "$arg" ] || [ "$arg" = all ]; then send_command "$q" "Clean all"

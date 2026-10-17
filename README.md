@@ -84,7 +84,9 @@ From the shell: `lp -o PageSize=4x6.bl -o MediaType=glossygold photo.jpg`, or li
 
 ### Printing photos
 
-Open **Canon Photo Print** from the application menu, or right-click photos in Dolphin and choose **Print photos...** (it is also listed under "Open With" in image viewers). Add or drag in photos, pick the paper size and layout (1, 2, 4, 6 or 9 per sheet), and press Print. For 4x6, 5x7 and similar sizes it picks borderless, photo paper and High quality automatically; photos are rotated to fill the sheet best, and **Fit whole photo** avoids cropping. From a terminal: `canon-photo-print *.jpg`.
+Open **Canon Photo Print** from the application menu, or right-click photos in Dolphin and choose **Print photos...** (it is also listed under "Open With" in image viewers). Add or drag in photos, pick the paper size and layout (1, 2, 4, 6 or 9 per sheet), and press Print. For 4x6, 5x7 and similar sizes it picks borderless, photo paper and High quality automatically; photos are rotated to fill the sheet best, and **Fit whole photo** avoids cropping. The **Color** panel adjusts brightness, contrast, saturation and the cyan / magenta / yellow balance with a live preview.
+
+Colours look off (for example too red or magenta)? Print a nozzle check first (`canonctl nozzle`). Gaps or missing lines in one colour block mean a clogged nozzle: run `canonctl clean`, check again, then `canonctl deep-clean` if needed. Also make sure the paper type matches the paper you loaded. From a terminal: `canon-photo-print *.jpg`.
 
 ### Right-click printing
 
@@ -94,8 +96,8 @@ In Dolphin, right-click a file and choose **Print**, **Print 2-sided** or **Prin
 
 ```bash
 canonctl nozzle          # nozzle check pattern
-canonctl clean           # print head cleaning, all inks  (clean group1 = black, group2 = colour)
-canonctl deep-clean      # deep cleaning
+canonctl clean           # print head cleaning, all inks  (clean black / clean color)
+canonctl deep-clean      # deep cleaning, all inks        (deep-clean black)
 canonctl flush           # ink flush / system cleaning; uses a lot of ink, asks first
 canonctl align           # print head alignment
 canonctl roller          # paper feed roller cleaning
