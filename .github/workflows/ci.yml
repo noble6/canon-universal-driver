@@ -31,3 +31,23 @@ jobs:
         run: make check
       - name: Package install into a staging root
         run: make DESTDIR=/tmp/stage install && find /tmp/stage -type f | head -20
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Core tests
+        run: ./gradlew --no-daemon :core:test
+      - name: Build APK
+        run: ./gradlew --no-daemon :app:assembleDebug
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ivec-print-apk
+          path: android/app/build/outputs/apk/debug/*.apk

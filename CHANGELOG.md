@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0
+
+- **Android app (IVEC Print)**: prints to USB-connected printers from any app's Print menu, without root (#4). Same model profiles and generic fallback as on Linux; paper sizes including borderless, colour / grayscale, paper type and print quality (in the app and under More options in the print dialog), automatic 2-sided on printers with a duplex unit and guided manual 2-sided on the others, paper-out / jam / cover-open on the job, cancel, and maintenance (nozzle check, cleaning, deep cleaning, ink flush, roller and bottom plate cleaning, head alignment). The job format is a Kotlin port of the Linux filter, checked byte for byte against it. Tested on a G3010 with Android 16.
+
 ## 1.8.0
 
 - Older printers not in the model list (for example the G1000 / G2000 series) now get a generic profile with the V1 job framing they need; the newer generic profile sent jobs these printers silently ignored (#3). `canonctl` picks the right one from the device ID, `canonctl detect` shows the device ID, and `canonctl setup --model` forces a profile.

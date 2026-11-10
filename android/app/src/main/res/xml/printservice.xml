@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<print-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="io.github.noble6.canonivec.MainActivity"
+    android:advancedPrintOptionsActivity="io.github.noble6.canonivec.PrintOptionsActivity" />
