@@ -108,6 +108,8 @@ class MainActivity : Activity() {
         col.addView(status)
         checkStatus(d, status)
 
+        defaults(model)
+
         // profile override, like canonctl setup --model
         val db = Printers.db(this)
         val choices = listOf<Model?>(null) + db.models.sortedBy { it.model.lowercase() }
@@ -132,6 +134,40 @@ class MainActivity : Activity() {
 
         col.addView(text("Device ID", bold = true))
         col.addView(text(devId.ifEmpty { "(not available)" }, 12f).apply { setTextIsSelectable(true) })
+    }
+
+    /** Default paper type and quality for every print (the print dialog's More options can change them per job). */
+    private fun defaults(model: Model) {
+        val prefs = Printers.prefs(this)
+        col.addView(text("Print settings", 17f, true).apply { setPadding(0, pad, 0, 0) })
+
+        fun spinner(label: String, keys: List<String?>, names: List<String>, current: String?, save: (String?) -> Unit) {
+            col.addView(text(label))
+            val sp = Spinner(this)
+            sp.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, names)
+            sp.setSelection(keys.indexOf(current).coerceAtLeast(0), false)
+            sp.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) = save(keys[pos])
+                override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+            }
+            col.addView(sp)
+        }
+
+        val levels = buildList {
+            if (model.hasDraft) add("draft" to "Draft (plain paper, faster, less ink)")
+            add("normal" to "Normal")
+            if (model.hasHigh) add("high" to "High")
+        }
+        spinner("Print quality", levels.map { it.first }, levels.map { it.second },
+            prefs.getString("quality:${model.id}", "normal")) { prefs.edit().putString("quality:${model.id}", it).apply() }
+
+        val media = listOf<String?>(null) + model.media.map { it.name }
+        spinner("Paper type", media, listOf("Automatic (plain paper, photo paper for borderless sizes)") + model.media.map { it.text },
+            prefs.getString("media:${model.id}", null)) { v ->
+            prefs.edit().apply { if (v == null) remove("media:${model.id}") else putString("media:${model.id}", v) }.apply()
+        }
+        col.addView(text("These apply to every print. You can also change them per print under More options " +
+            "in the print dialog.", 13f))
     }
 
     private fun maintenance(d: UsbDevice, model: Model) {

@@ -77,12 +77,11 @@ class IvecPrintService : PrintService() {
 
         private fun update() {
             val ctx = this@IvecPrintService
+            // print framework calls (ids, tracked printers) only work on the main thread
+            val devices = UsbPrinter.list(ctx).map { generatePrinterId(Printers.localId(it)) to it }
+            val tracked = trackedPrinters.toSet()
             Thread {
-                val devices = UsbPrinter.list(ctx)
-                val infos = devices.map { d ->
-                    val id = generatePrinterId(Printers.localId(d))
-                    info(id, d, withCaps = trackedPrinters.contains(id))
-                }
+                val infos = devices.map { (id, d) -> info(id, d, withCaps = id in tracked) }
                 mainExecutor.execute {
                     if (isDestroyed) return@execute
                     val now = infos.map { it.id }.toSet()

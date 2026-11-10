@@ -10,11 +10,14 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.hardware.usb.UsbRequest
 import io.github.noble6.canonivec.core.Ivec
 import io.github.noble6.canonivec.core.PrinterStatus
 import io.github.noble6.canonivec.core.StatusFeed
 import java.io.IOException
 import java.io.OutputStream
+import java.nio.ByteBuffer
+import java.util.concurrent.TimeoutException
 
 /**
  * A Canon printer on USB, talking to the printer-class interface directly
@@ -125,12 +128,16 @@ class UsbPrinter private constructor(
     }
 
     /**
-     * Stream to the printer.  Writes use short timeouts so a printer that
-     * stops taking data (paper out) does not hang the job; [cancelled] is
-     * checked between attempts.
+     * Stream to the printer.  bulkTransfer() cannot be used here: when it
+     * times out (the printer stops taking data while it prints, or is out
+     * of paper) it reports nothing sent even though part of the chunk went
+     * out, and resending corrupts the stream.  A queued UsbRequest reports
+     * exactly what was transferred and can wait as long as the printer
+     * needs; [cancelled] is checked every second.
      */
     fun output(cancelled: () -> Boolean): OutputStream = object : OutputStream() {
         private val chunk = 16384
+        private val buf = ByteBuffer.allocateDirect(chunk)
 
         override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
 
@@ -140,19 +147,52 @@ class UsbPrinter private constructor(
             while (o < end) {
                 if (cancelled()) throw CancelledException()
                 val n = minOf(chunk, end - o)
-                val sent = conn.bulkTransfer(epOut, b, o, n, 2000)
-                if (sent > 0) {
-                    o += sent
-                } else if (!usb.deviceList.containsKey(device.deviceName)) {
+                buf.clear()
+                buf.put(b, o, n)
+                buf.flip()
+                o += transfer(buf, cancelled)
+            }
+        }
+    }
+
+    private var outReq: UsbRequest? = null
+
+    /** Send what is in [buf]; returns how many bytes went out. */
+    private fun transfer(buf: ByteBuffer, cancelled: () -> Boolean): Int {
+        val req = outReq ?: UsbRequest().also {
+            if (!it.initialize(conn, epOut)) throw IOException("cannot set up the USB transfer")
+            outReq = it
+        }
+        val n = buf.remaining()
+        if (!req.queue(buf)) throw IOException("printer disconnected")
+        while (true) {
+            val done = try {
+                conn.requestWait(1000)
+            } catch (e: TimeoutException) {
+                null
+            }
+            if (done === req) {
+                // on completion the position is the number of bytes transferred
+                val sent = buf.position()
+                return if (sent in 1..n) sent else n
+            }
+            if (done == null) {
+                if (!usb.deviceList.containsKey(device.deviceName)) {
+                    req.cancel()
                     throw IOException("printer disconnected")
                 }
-                // 0 / -1: timed out while the printer is busy or waiting; try again
+                if (cancelled()) {
+                    req.cancel()
+                    try { conn.requestWait(2000) } catch (e: TimeoutException) {}
+                    throw CancelledException()
+                }
             }
         }
     }
 
     override fun close() {
         stopStatusReader()
+        outReq?.close()
         conn.releaseInterface(iface)
         conn.close()
     }

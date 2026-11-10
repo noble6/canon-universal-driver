@@ -77,9 +77,10 @@ class IvecPrintJob(
     /** Whether page [number] (1-based) must be rendered turned by 180 degrees. */
     fun rotate(number: Int): Boolean =
         if (manualDuplex) {
-            // reloaded blank side facing the user, TOP edge first: long-edge
-            // backs are turned, short-edge backs not (verified on a G3010)
-            number % 2 == 0 && ((settings.duplex == Duplex.LONG_EDGE) != settings.manualBackTurned)
+            // reloaded blank side facing the user, TOP edge first, with pages
+            // rendered upright: short-edge backs are turned, long-edge backs
+            // not (verified on a G3010 from Android)
+            number % 2 == 0 && ((settings.duplex == Duplex.SHORT_EDGE) != settings.manualBackTurned)
         } else {
             model.duplex && settings.duplex == Duplex.LONG_EDGE && number % 2 == 1
         }
