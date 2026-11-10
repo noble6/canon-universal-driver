@@ -10,8 +10,21 @@ android {
         applicationId = "io.github.noble6.canonivec"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 10900
+        versionName = "1.9.0"
+    }
+
+    // release key from the environment (CI secrets, or a local keystore)
+    val keystore = System.getenv("IVEC_KEYSTORE")
+    if (keystore != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("IVEC_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("IVEC_KEY_ALIAS") ?: "ivecprint"
+                keyPassword = System.getenv("IVEC_KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     sourceSets {
@@ -22,6 +35,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 

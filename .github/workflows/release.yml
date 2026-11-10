@@ -103,3 +103,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" canon-ivec-driver_*_amd64.deb --clobber -R "$GITHUB_REPOSITORY"
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Build signed APK
+        env:
+          KEYSTORE_B64: ${{ secrets.IVEC_KEYSTORE_B64 }}
+          IVEC_KEYSTORE_PASSWORD: ${{ secrets.IVEC_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export IVEC_KEYSTORE="$RUNNER_TEMP/release.jks"
+          cd android
+          ./gradlew --no-daemon :core:test :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/ivec-print-${TAG#v}.apk"
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" ivec-print-*.apk --clobber -R "$GITHUB_REPOSITORY"

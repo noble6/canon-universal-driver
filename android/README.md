@@ -1,18 +1,18 @@
 # IVEC Print for Android
 
-Prints to Canon IVEC printers (PIXMA, MAXIFY, G series) connected over USB, from any app's Print menu. It's the same driver as the Linux one, ported to Kotlin, and it works without root. Status: **early, needs testing on real printers**.
+Prints to Canon IVEC printers (PIXMA, MAXIFY, G series) connected over USB, from any app's Print menu. It's the same driver as the Linux one, ported to Kotlin, and it works without root. Tested on a G3010 with Android 16; reports from other models are welcome.
 
 ## What works
 
 - Every model in the Linux driver (164 profiles plus the two generic ones), detected from the printer's device ID
-- Paper sizes including borderless, color / grayscale, paper type and print quality (under "More options" in the print dialog)
+- Paper sizes including borderless, color / grayscale, paper type and print quality (defaults in the app, per print under "More options" in the print dialog)
 - 2-sided printing: automatic on printers with a duplex unit, guided manual mode on the others (a notification tells you how to put the stack back, then Continue prints the backs)
 - Paper out, paper jam and cover open show up as a blocked job with the reason; cancelling a job stops the printer
 - Maintenance in the app: nozzle check, cleaning, deep cleaning, ink flush, roller and bottom plate cleaning, head alignment (whatever the model accepts)
 
 ## Setup
 
-1. Install the APK and connect the printer (USB-C or OTG adapter on phones). Android asks whether to open IVEC Print for the device; allow it.
+1. Install `ivec-print-*.apk` from the [latest release](https://github.com/noble6/canon-universal-driver/releases/latest) and connect the printer (USB-C or OTG adapter on phones). Android asks whether to open IVEC Print for the device; allow it.
 2. Settings > Connected devices > Printing (or the button in the app): turn on **IVEC Print**.
 3. Print from any app and pick the Canon printer.
 

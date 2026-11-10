@@ -19,6 +19,7 @@ If you kept a Windows partition only because your Canon printer or its maintenan
 - **Print quality** Draft / Normal / High in every print dialog.
 - **Canon Photo Print**, a photo printing app like Canon's Photo Garden: borderless 4x6 / 5x7 / A4, several photos per sheet, photo paper and High quality set up for you, with a live preview.
 - **Right-click Print** in Dolphin (KDE) for PDFs, images, text and office documents, including 2-sided and grayscale.
+- **Android too:** the IVEC Print app adds USB-connected printers to every app's Print menu on phones, tablets and Android desktops, with the same model profiles, 2-sided printing, quality settings and maintenance. No root needed. See [android/README.md](android/README.md).
 - **Works everywhere printing works:** LibreOffice, Firefox, Chrome, GTK and Qt apps, and the `lp` command line all see the printer and its options.
 
 ## Install
@@ -50,6 +51,10 @@ Download `canon-ivec-driver_*_amd64.deb` from the [latest release](https://githu
 sudo apt install ./canon-ivec-driver_*_amd64.deb
 canonctl setup
 ```
+
+### Android
+
+Download `ivec-print-*.apk` from the [latest release](https://github.com/noble6/canon-universal-driver/releases/latest) and install it. Connect the printer with a USB cable (a USB-C or OTG adapter on phones), allow IVEC Print to use it, and turn on IVEC Print under Settings > Connected devices > Printing. Details in [android/README.md](android/README.md).
 
 ### From source (any distribution)
 
