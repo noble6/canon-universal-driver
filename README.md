@@ -153,6 +153,8 @@ See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). Start with:
 canonctl doctor
 canonctl detect
 ```
+## Credits
+**[Madaboutpawz](https://github.com/Madaboutpawz)** for everything to make this project possible.
 
 ## Contributing
 
