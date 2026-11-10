@@ -8,18 +8,24 @@ Resume / Cancel job / Open queue buttons.  The notification closes itself
 once the condition clears.
 
 Runs per user session (installed as an XDG autostart entry).  Needs only
-python3, ipptool (cups) and notify-send (libnotify).
+python3, the CUPS command-line tools and notify-send (libnotify); uses
+ipptool when installed.
 """
 import csv
 import io
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+
 import tempfile
 import threading
 import time
+
+# CUPS tools print translated messages; this file parses them
+os.environ['LC_ALL'] = 'C'
 
 POLL = 3
 TEST = """{
@@ -58,7 +64,29 @@ HINT = {
 }
 
 
+STATES = {'3': 'idle', '4': 'processing', '5': 'stopped'}
+
+
+def lp_state(queue):
+    """Printer state without ipptool, from lpoptions and lpstat."""
+    try:
+        opts = subprocess.run(['lpoptions', '-p', queue], capture_output=True, text=True, timeout=10).stdout
+        attrs = dict(x.split('=', 1) for x in shlex.split(opts) if '=' in x)
+        lines = subprocess.run(['lpstat', '-l', '-p', queue], capture_output=True, text=True,
+                               timeout=10).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    # the line after "printer X is ..." is the state message, when there is one
+    msg = lines[1].strip() if len(lines) > 1 and not re.match(r'\s*\w[\w ]*:', lines[1]) else ''
+    return {'printer-state': STATES.get(attrs.get('printer-state', ''), ''),
+            'printer-state-reasons': attrs.get('printer-state-reasons', ''),
+            'printer-state-message': msg,
+            'printer-make-and-model': attrs.get('printer-make-and-model', '')}
+
+
 def ipp_state(queue, testfile):
+    if not testfile:
+        return lp_state(queue)
     try:
         out = subprocess.run(['ipptool', '-c', f'ipp://localhost/printers/{queue}', testfile],
                              capture_output=True, text=True, timeout=10).stdout
@@ -204,11 +232,13 @@ class Popup:
 
 
 def main():
-    if not shutil.which('ipptool') or not shutil.which('notify-send'):
-        sys.exit('canon-ivec-notify: needs ipptool (cups) and notify-send (libnotify)')
-    fd, testfile = tempfile.mkstemp(suffix='.test')
-    with os.fdopen(fd, 'w') as f:
-        f.write(TEST)
+    if not shutil.which('notify-send'):
+        sys.exit('canon-ivec-notify: needs notify-send (libnotify / libnotify-bin / libnotify-tools)')
+    testfile = None
+    if shutil.which('ipptool'):
+        fd, testfile = tempfile.mkstemp(suffix='.test')
+        with os.fdopen(fd, 'w') as f:
+            f.write(TEST)
     popups = {}
     try:
         while True:
@@ -237,7 +267,8 @@ def main():
     finally:
         for p in popups.values():
             p.close()
-        os.unlink(testfile)
+        if testfile:
+            os.unlink(testfile)
 
 
 if __name__ == '__main__':

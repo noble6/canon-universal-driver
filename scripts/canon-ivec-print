@@ -15,7 +15,11 @@ import os
 import shutil
 import subprocess
 import sys
+
 import tempfile
+
+# CUPS tools print translated messages; this file parses them
+os.environ['LC_ALL'] = 'C'
 
 DIRECT = ('application/pdf', 'application/postscript', 'text/plain')
 DIRECT_IMAGES = ('image/jpeg', 'image/png', 'image/tiff', 'image/gif', 'image/bmp', 'image/x-portable-anymap',

@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # canonctl - set up and maintain Canon inkjets with the IVEC open driver.
 set -u
+# lpinfo/lpstat output is parsed below; their translated messages would break it
+export LC_ALL=C LANG=C LANGUAGE=
 
 PPDDIR=${CANON_IVEC_PPDDIR:-/usr/share/ppd/canon-ivec}
 SERVERBIN=${CANON_IVEC_SERVERBIN:-/usr/lib/cups}
@@ -16,9 +18,11 @@ usage: canonctl <command> [args]
 
 Setup
   detect                    list Canon printers on USB and the network
-  setup [URI] [--name Q]    create a print queue (USB: open IVEC driver,
+  setup [URI] [--name Q] [--model M]
+                            create a print queue (USB: open IVEC driver,
                             network: driverless IPP); picks the first printer
-                            found when URI is omitted
+                            found when URI is omitted; --model forces a profile
+                            (e.g. --model "G3000 series", see "models")
   models [PATTERN]          list supported models
   doctor                    check the installation and common problems
   scan                      check/set up scanning (SANE)
@@ -55,6 +59,21 @@ devices() {
 
 mdl_of() { sed -n 's/.*MDL:\([^;]*\);.*/\1/p' <<<"$1"; }
 
+# Older IVEC printers (roughly 2014-2017) need the V1 job framing.  Among the
+# profiled models they are exactly the ones whose device ID lists IVECPLI in
+# CMD, or whose SOJ field lacks CHMP.
+is_v1_device() {
+    local cmd soj
+    cmd=$(sed -n 's/.*CMD:\([^;]*\);.*/\1/p' <<<"$1")
+    soj=$(sed -n 's/.*SOJ:\([^;]*\);.*/\1/p' <<<"$1")
+    [[ $cmd == *IVECPLI* || $soj != *CHMP* ]]
+}
+
+generic_ppd() {
+    if is_v1_device "$1"; then echo "$PPDDIR/Canon-IVEC_Generic_older_models-ivec.ppd"
+    else echo "$PPDDIR/Canon-IVEC_Generic-ivec.ppd"; fi
+}
+
 ppd_for_mdl() {
     local mdl=$1 f
     [ -n "$mdl" ] || return 1
@@ -81,8 +100,11 @@ cmd_detect() {
         printf '  %s\n    model: %s\n' "$uri" "${mdl:-unknown}"
         case $uri in
             usb:*|canonivec:*) if [ -n "$ppd" ]; then echo "    driver: IVEC open driver ($(basename "$ppd"))"
-                   elif [[ $id == *IVEC* ]]; then echo "    driver: IVEC open driver (generic profile)"
-                   else echo "    driver: not an IVEC printer - try gutenprint"; fi ;;
+                   elif [[ $id == *IVEC* ]]; then
+                       echo "    driver: IVEC open driver, generic profile ($(basename "$(generic_ppd "$id")"))"
+                       echo "    please report this model so it can get its own profile"
+                   else echo "    driver: not an IVEC printer - try gutenprint"; fi
+                   [ -n "$id" ] && echo "    device ID: $id" ;;
             *)     echo "    driver: driverless IPP (built into the printer)" ;;
         esac
     done <<<"$all"
@@ -97,10 +119,11 @@ cmd_models() {
 queue_name() { sed 's/^Canon //; s/[^A-Za-z0-9_-]/_/g; s/__*/_/g; s/_series$//; s/^/Canon_/' <<<"$1"; }
 
 cmd_setup() {
-    local uri="" name="" id="" mdl ppd
+    local uri="" name="" id="" mdl ppd force=""
     while [ $# -gt 0 ]; do
         case $1 in
             --name) name=$2; shift 2 ;;
+            --model) force=$2; shift 2 ;;
             *) uri=$1; shift ;;
         esac
     done
@@ -121,11 +144,20 @@ cmd_setup() {
 
     case $uri in
         usb:*|canonivec:*)
-            ppd=$(ppd_for_mdl "$mdl")
+            if [ -n "$force" ]; then
+                ppd=$(ppd_for_mdl "$force")
+                [ -n "$ppd" ] || ppd=$(grep -l -i -F "$force" "$PPDDIR"/*.ppd 2>/dev/null | head -1)
+                [ -n "$ppd" ] || die "no profile matches '$force' (see: canonctl models)"
+                info "Using the profile $(basename "$ppd") as requested"
+            else
+                ppd=$(ppd_for_mdl "$mdl")
+            fi
             if [ -z "$ppd" ]; then
                 [[ $id == *IVEC* ]] || die "$mdl does not speak IVEC; this driver cannot drive it"
-                ppd=$(ls "$PPDDIR"/Canon-IVEC_Generic-ivec.ppd 2>/dev/null) || die "generic PPD missing"
-                info "No exact profile for '$mdl', using the generic IVEC profile"
+                ppd=$(generic_ppd "$id")
+                [ -f "$ppd" ] || die "generic PPD missing ($ppd)"
+                info "No exact profile for '$mdl', using $(basename "$ppd")"
+                info "Please report the model (with: canonctl detect) so it can get its own profile"
             fi
             info "Creating queue '$name' for $mdl on $uri"
             asroot lpadmin -p "$name" -E -v "$uri" -P "$ppd" -o printer-is-shared=false \
@@ -155,6 +187,41 @@ default_queue() {
 
 is_queue() { lpstat -p "$1" >/dev/null 2>&1; }
 
+# The model PPD behind a queue, found through its make-and-model.
+queue_ppd() {
+    local mm
+    mm=$(lpoptions -p "$1" 2>/dev/null | grep -o "printer-make-and-model='[^']*'" | sed "s/^[^']*'//; s/'\$//")
+    [ -n "$mm" ] && grep -l -F "*NickName: \"$mm\"" "$PPDDIR"/*.ppd 2>/dev/null | head -1
+}
+
+# Refuse maintenance the printer does not accept, instead of sending a job
+# that silently does nothing.  $2: operation (Cleaning, RollerCleaning,
+# TestPrint, Align), $3: type, $4: ink group.
+check_supported() {
+    local q=$1 op=$2 type=$3 group=${4:-} ppd model groups
+    ppd=$(queue_ppd "$q")
+    [ -n "$ppd" ] || return 0          # not our driver: let CUPS decide
+    model=$(sed -n 's/^\*ModelName: "\(.*\)"/\1/p' "$ppd")
+    if grep -q '^\*cnivecMaintStyle: "bjl"' "$ppd"; then
+        # older printers: only the two classic commands exist
+        if [[ $op == Cleaning && $type == regular && ( -z $group || $group == all ) ]] ||
+           [[ $op == TestPrint && $type == nozzle_check ]]; then return 0; fi
+    elif [[ $op == Align ]]; then
+        grep -q '^\*cupsCommands:.*PrintAlignmentPage' "$ppd" && return 0
+    elif grep -q "^\*cnivecMaint $op\.$type:" "$ppd"; then
+        groups=$(sed -n "s/^\*cnivecMaint $op\.$type: \"\(.*\)\"/\1/p" "$ppd")
+        [[ -z $group || $group == all || ,$groups, == *,$group,* ]] && return 0
+    fi
+    echo "canonctl: $model does not accept this from the computer (Canon's Linux driver does not offer it either)." >&2
+    case $op in
+        Align) echo "    Use the printer's own menu: on models with a screen, Setup > Maintenance >" >&2
+               echo "    Print head alignment; otherwise see the Maintenance chapter of its manual." >&2 ;;
+        *)     echo "    Supported here: canonctl clean, canonctl nozzle. Other maintenance is in the" >&2
+               echo "    printer's own menu (Setup > Maintenance) on models with a screen." >&2 ;;
+    esac
+    exit 1
+}
+
 send_command() {
     local q=$1 cmd=$2 ppdfile
     is_queue "$q" || die "no such queue: $q"
@@ -176,19 +243,27 @@ maint() {
         color|colour) arg=group2 ;;
     esac
     [ -n "$q" ] || q=$(default_queue)
+    is_queue "$q" || die "no such queue: $q"
     case $cmd in
-        clean)      if [ -z "$arg" ] || [ "$arg" = all ]; then send_command "$q" "Clean all"
+        clean)      check_supported "$q" Cleaning regular "$arg"
+                    if [ -z "$arg" ] || [ "$arg" = all ]; then send_command "$q" "Clean all"
                     else send_command "$q" "com.canon.Cleaning regular $arg"; fi ;;
-        deep-clean) send_command "$q" "com.canon.Cleaning deep ${arg:-all}" ;;
-        flush)      read -r -p "Ink flush uses a large amount of ink. Continue? [y/N] " a
+        deep-clean) check_supported "$q" Cleaning deep "${arg:-all}"
+                    send_command "$q" "com.canon.Cleaning deep ${arg:-all}" ;;
+        flush)      check_supported "$q" Cleaning choke "${arg:-all}"
+                    read -r -p "Ink flush uses a large amount of ink. Continue? [y/N] " a
                     [[ $a == [yY]* ]] || exit 0
                     send_command "$q" "com.canon.Cleaning choke ${arg:-all}" ;;
-        nozzle)     send_command "$q" "PrintSelfTestPage"; echo "    Load plain A4/Letter paper." ;;
-        align)      send_command "$q" "PrintAlignmentPage"
+        nozzle)     check_supported "$q" TestPrint nozzle_check
+                    send_command "$q" "PrintSelfTestPage"; echo "    Load plain A4/Letter paper." ;;
+        align)      check_supported "$q" Align -
+                    send_command "$q" "PrintAlignmentPage"
                     echo "    Load plain A4/Letter paper. On scanner models, place the printed"
                     echo "    sheet on the glass when the printer asks and press OK/Start." ;;
-        roller)     send_command "$q" "com.canon.RollerCleaning roller" ;;
-        platen)     send_command "$q" "com.canon.RollerCleaning platen"
+        roller)     check_supported "$q" RollerCleaning roller
+                    send_command "$q" "com.canon.RollerCleaning roller" ;;
+        platen)     check_supported "$q" RollerCleaning platen
+                    send_command "$q" "com.canon.RollerCleaning platen"
                     echo "    Load one sheet of A4/Letter folded in half (fold facing up)." ;;
     esac
 }
@@ -198,7 +273,7 @@ cmd_status() {
     lpstat -l -p "$q" || return 1
     lpstat -W completed -o "$q" 2>/dev/null | tail -3
     uri=$(lpstat -v "$q" 2>/dev/null | sed 's/.*: //')
-    if [[ $uri == ipp* ]]; then
+    if [[ $uri == ipp* ]] && command -v ipptool >/dev/null; then
         ipptool -tv "$uri" get-printer-attributes.test 2>/dev/null |
             grep -E 'marker-(names|levels)|printer-state-reasons' | sed 's/^ */  /'
     else
@@ -251,7 +326,10 @@ cmd_doctor() {
     warn "SANE installed (scanning)" "command -v scanimage" "install sane, sane-airscan and simple-scan"
     warn "system-config-printer installed (KDE printer settings)" "command -v system-config-printer" \
         "install system-config-printer"
-    warn "printer notifications running" "pgrep -f 'python3 .*bin/canon-ivec-notify'" "run canon-ivec-notify & (starts at login)"
+    warn "notify-send available (printer notifications)" "command -v notify-send" \
+        "install libnotify (Arch, Fedora), libnotify-bin (Debian, Ubuntu, Mint) or libnotify-tools (openSUSE)"
+    warn "printer notifications running" "pgrep -f 'python3.* .*bin/canon-ivec-notify'" \
+        "run canon-ivec-notify & (it starts at every login)"
     warn "picture guide for manual 2-sided printing (PySide6 or GTK 4)" \
         "python3 -c 'import PySide6.QtSvgWidgets' || python3 -c 'import gi; gi.require_version(\"Gtk\", \"4.0\")'" \
         "install pyside6 (or python-gobject and gtk4)"
@@ -270,6 +348,9 @@ cmd_scan() {
     echo "Scan from a GUI with simple-scan (GNOME Document Scanner) or skanpage,"
     echo "or from the shell:  scanimage --format=png --resolution 300 -o scan.png"
 }
+
+# tests source this file for its functions
+[ "${CANONCTL_LIB:-}" = 1 ] && return 0
 
 cmd=${1:-help}
 shift || true

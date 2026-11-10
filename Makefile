@@ -44,6 +44,7 @@ check: all out/test_status
 	out/test_status
 	$(PYTHON) -B tests/test_notify.py
 	@$(PYTHON) -B tests/test_print_helper.py
+	@tests/test_canonctl.sh
 	@QT_QPA_PLATFORM=offscreen $(PYTHON) -B tests/test_photo_print.py
 	@$(PYTHON) -B scripts/canon-ivec-flip --svg out/flip.svg && grep -q '</svg>' out/flip.svg && echo "PASS flip diagram"
 	tests/run_tests.sh

@@ -108,9 +108,11 @@ def parse_ref(path):
     }
 
 
-def generic(models):
+def generic(models, v1=False):
     """Conservative profile for IVEC printers not in the list: the common
-    office sizes with the smallest printable area any known model uses."""
+    office sizes with the smallest printable area any known model uses.
+    v1: for older printers (about 2014-2017) that need the V1 job framing
+    and BJL maintenance; canonctl picks it from the device ID."""
     sizes = {}
     for m in models:
         for s in m['sizes']:
@@ -118,6 +120,18 @@ def generic(models):
                 cur = sizes.get(s['name'])
                 if not cur or s['print'][0] * s['print'][1] < cur['print'][0] * cur['print'][1]:
                     sizes[s['name']] = s
+    if v1:
+        return {
+            'id': 'generic-v1', 'model': 'IVEC Generic older models', 'nickname': 'Canon IVEC Generic (older models)',
+            'device_id': 'MFG:Canon;CMD:IVEC,IVECPLI;MDL:IVEC Generic older models;CLS:PRINTER;',
+            'protocol': 1, 'datetime': False, 'mono_only': False, 'default_gray': False, 'color': True,
+            'duplex': False, 'optimization': False, 'resolution': 600, 'default_size': 'A4',
+            'default_media': 'plain', 'maint_style': 'bjl', 'maint_datetime': False, 'maint_hostenv': True,
+            'quality': {'levels': [], 'draft_res': None, 'draft_media': []}, 'maint': {},
+            'sizes': [sizes[k] for k in ('A4', 'Letter', 'A5', 'legal', '4x6', '5x7in') if k in sizes],
+            'media': [{'name': 'plain', 'text': 'Plain Paper', 'ivec': 'stationery'},
+                      {'name': 'photopaper', 'text': 'Photo Paper', 'ivec': 'photographic'}],
+        }
     return {
         'id': 'generic', 'model': 'IVEC Generic', 'nickname': 'Canon IVEC Generic',
         'device_id': 'MFG:Canon;CMD:IVEC;MDL:IVEC Generic;CLS:PRINTER;',
@@ -197,7 +211,7 @@ def main(out_path):
             'sizes': out_sizes,
             'media': out_media,
         })
-    models.append(generic(models))
+    models.extend([generic(models), generic(models, v1=True)])
     json.dump({'source': 'cnijfilter2 6.81 capability data', 'models': models},
               open(out_path, 'w'), indent=0, separators=(',', ':'))
     print(len(models), 'models ->', out_path)

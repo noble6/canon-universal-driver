@@ -23,7 +23,7 @@ SERIES = [
 
 
 def main(db, out):
-    models = [m for m in json.load(open(db))['models'] if m['id'] != 'generic']
+    models = [m for m in json.load(open(db))['models'] if not m['id'].startswith('generic')]
     groups = defaultdict(list)
     for m in models:
         name = m['model'].replace(' series', '')

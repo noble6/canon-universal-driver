@@ -31,7 +31,7 @@ one() {
 }
 export -f one
 
-grep -h '^\*% model-id:' "$W"/ppds/*.ppd | awk '{print $3}' | grep -v '^generic$' |
+grep -h '^\*% model-id:' "$W"/ppds/*.ppd | awk '{print $3}' | grep -v '^generic' |
     xargs -P"${JOBS:-6}" -I{} bash -c 'one {} '"$doc" > "$W/sweep.txt" 2>&1
 
 {

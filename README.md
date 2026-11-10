@@ -59,10 +59,14 @@ cd canon-universal-driver
 # Arch:   sudo pacman -S --needed base-devel cups ghostscript python libusb
 # Debian: sudo apt install build-essential libcups2-dev libusb-1.0-0-dev cups cups-filters ghostscript python3 libnotify-bin
 # Fedora: sudo dnf install gcc make cups-devel libusb1-devel cups cups-filters ghostscript python3 libnotify
+# openSUSE: sudo zypper install gcc make cups-devel libusb-1_0-devel cups cups-filters ghostscript python3 libnotify-tools
 make && make check
 sudo make install
+sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/canon-ivec.conf   # manual 2-sided printing
 canonctl setup
 ```
+
+Log out and back in once so the printer notifications start. Optional extras: `pyside6` (or your distribution's PySide6 package) for Canon Photo Print and the 2-sided picture guide, `numpy` for its color adjustment, and SANE for scanning.
 
 On Arch, `sudo scripts/install-local.sh` does all of this, removes leftovers of other Canon drivers and starts the notifications.
 

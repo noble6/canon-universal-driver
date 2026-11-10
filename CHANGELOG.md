@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.0
+
+- Older printers not in the model list (for example the G1000 / G2000 series) now get a generic profile with the V1 job framing they need; the newer generic profile sent jobs these printers silently ignored (#3). `canonctl` picks the right one from the device ID, `canonctl detect` shows the device ID, and `canonctl setup --model` forces a profile.
+- `canonctl` and the helpers work on non-English systems; they parsed translated CUPS output before (#1).
+- `canonctl` checks what a printer accepts before sending maintenance and explains when it has to be done on the printer, instead of reporting "Sent" for a job that does nothing (head alignment on a TS8000, #1).
+- Printer notifications no longer need `ipptool`, which Debian, Mint and openSUSE package separately; `canonctl doctor` checks for `notify-send`.
+- Install instructions for openSUSE (#2) and the missing steps for source installs.
+
 ## 1.7.0
 
 - Borderless: the driver now fills the printer's borderless print area completely instead of fitting inside it (Canon's driver leaves about 0.5 mm unprinted at two edges, which showed as a white strip). `CNBorderlessCover=False` restores Canon's behaviour.

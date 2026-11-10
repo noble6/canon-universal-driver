@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+
 import tempfile
 import urllib.parse
 import urllib.request
@@ -44,8 +45,9 @@ PHOTO_HINT = ('photo', 'glossy', 'luster', 'matte', 'semigloss', 'pro', 'plus')
 # ---- printer information ----
 
 def printers():
-    out = subprocess.run(['lpstat', '-e'], capture_output=True, text=True).stdout.split()
-    d = subprocess.run(['lpstat', '-d'], capture_output=True, text=True).stdout
+    env = dict(os.environ, LC_ALL='C')     # parsed below; keep CUPS from translating it
+    out = subprocess.run(['lpstat', '-e'], capture_output=True, text=True, env=env).stdout.split()
+    d = subprocess.run(['lpstat', '-d'], capture_output=True, text=True, env=env).stdout
     default = d.split(':', 1)[1].strip() if ':' in d else None
     return out, default
 

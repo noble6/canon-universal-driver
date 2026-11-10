@@ -162,7 +162,7 @@ def ppd_for(m, version):
         out.append(f'*cnivecMediaType {x["name"]}: "{x["ivec"]}"\n')
     out.append('\n')
 
-    if not m['duplex'] and m['id'] != 'generic':
+    if not m['duplex'] and not m['id'].startswith('generic'):
         # No automatic duplex: the standard Duplex option drives a guided
         # manual mode (fronts, pause for the user to flip the stack, backs).
         out.append('*cnivecManualDuplex: "True"\n'

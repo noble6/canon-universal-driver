@@ -50,13 +50,21 @@ On printers without a duplex unit the driver prints the fronts, then asks you to
 
 Install it: `sudo pacman -S system-config-printer`. KDE's printer settings use it for extra features.
 
+## Head alignment or deep cleaning "does nothing"
+
+Some older models (for example the TS8000, TS5000, MG3600, G3000 and other printers whose profile uses BJL maintenance) only accept head cleaning and the nozzle check from a computer; Canon's own Linux driver offers nothing more for them either. `canonctl` says so instead of sending the command. Use the printer's own menu for the rest: on models with a screen, Setup > Maintenance.
+
+## Printer not in the supported list
+
+`canonctl setup` then uses a generic profile, picking the one for older or newer printers from the printer's device ID. If printing does nothing, try the profile of a sibling model, for example `canonctl setup --model "G3000 series"` for a G1000/G2000 series printer, and please report the result with the output of `canonctl detect` (it includes the device ID).
+
 ## Chrome shows only a few options
 
 Chrome's own print preview only shows paper size, colour, 2-sided, copies and layout. For media type and the rest, use **Print using system dialog** (Ctrl+Shift+P).
 
 ## No paper-out notification
 
-1. `canonctl doctor` should report "printer notifications running". If not, start `canon-ivec-notify &` or log out and back in.
+1. `canonctl doctor` should report "notify-send available" and "printer notifications running". `notify-send` comes in `libnotify` (Arch, Fedora), `libnotify-bin` (Debian, Ubuntu, Mint) or `libnotify-tools` (openSUSE). Then start `canon-ivec-notify &` or log out and back in.
 2. Alerts work for USB queues using the `canonivec://` backend (see above). Network (driverless IPP) queues get them from the printer itself through CUPS.
 3. Reproduce the problem, then run `sudo canonctl report` and attach the output to an issue. It shows the raw status messages the printer sent.
 

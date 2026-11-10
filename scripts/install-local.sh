@@ -3,6 +3,8 @@
 # connected printer.  Safe to run again after pulling updates.
 #   sudo scripts/install-local.sh
 set -e
+# output of lpstat/lpinfo is parsed below
+export LC_ALL=C LANG=C
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }
 cd "$(dirname "$0")/.."
 QUEUE=${QUEUE:-Canon_G3010}
