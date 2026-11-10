@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IVEC Print</string>
+    <string name="print_options">Paper type and quality</string>
+    <string name="flip_title">Turn the paper over</string>
+</resources>
